@@ -90,40 +90,110 @@ export const App: React.FC = () => {
     loadAllData();
   }, [currentUser]);
 
-  const loadAllData = async () => {
-    try {
-      setLoading(true);
-      const [
-        bootstrapRes,
-        candidatesRes,
-        openingsRes,
-        clientsRes,
-        interviewsRes,
-        leadsRes,
-        joiningsRes,
-        dashboardRes,
-        hrsRes
-      ] = await Promise.all([
-        api.getBootstrap(),
-        can(currentUser, 'candidates.view') ? api.getCandidates() : Promise.resolve({ candidates: [] }),
-        can(currentUser, 'openings.view') ? api.getOpenings() : Promise.resolve({ openings: [] }),
-        can(currentUser, 'clients.view') ? api.getClients() : Promise.resolve({ clients: [] }),
-        can(currentUser, 'interviews.view') ? api.getInterviews() : Promise.resolve({ interviews: [] }),
-        can(currentUser, 'leads.view') ? api.getLeads() : Promise.resolve({ leads: [] }),
-        can(currentUser, 'joinings.view') ? api.getJoinings() : Promise.resolve({ joinings: [] }),
-        currentUser.role !== 'FINANCE' ? api.getDashboard() : Promise.resolve(null),
-        can(currentUser, 'hr_registry.manage') ? api.getHRs() : Promise.resolve({ hrs: [] })
-      ]);
+  // PERF: cached copy of the last loaded data, shown instantly on next visit
+  const cacheKey = `novapulse_data_cache_v1_${currentUser.email || 'anon'}`;
 
-      if (bootstrapRes.dropdowns) setDropdowns(bootstrapRes.dropdowns);
-      setCandidates(candidatesRes.candidates || []);
-      setOpenings(openingsRes.openings || []);
-      setClients(clientsRes.clients || []);
-      setInterviews(interviewsRes.interviews || []);
-      setLeads(leadsRes.leads || []);
-      setJoinings(joiningsRes.joinings || []);
-      setDashboardMetrics(dashboardRes);
-      setHrs(hrsRes.hrs || []);
+  type AllData = {
+    dropdowns?: Record<string, DropdownOption[]>;
+    candidates: Candidate[];
+    openings: Opening[];
+    clients: Client[];
+    interviews: InterviewItem[];
+    leads: LeadItem[];
+    joinings: JoiningRecord[];
+    dashboard: DashboardMetrics | null;
+    hrs: HRRecord[];
+  };
+
+  const applyData = (d: AllData) => {
+    if (d.dropdowns) setDropdowns(d.dropdowns);
+    setCandidates(can(currentUser, 'candidates.view') ? d.candidates || [] : []);
+    setOpenings(can(currentUser, 'openings.view') ? d.openings || [] : []);
+    setClients(can(currentUser, 'clients.view') ? d.clients || [] : []);
+    setInterviews(can(currentUser, 'interviews.view') ? d.interviews || [] : []);
+    setLeads(can(currentUser, 'leads.view') ? d.leads || [] : []);
+    setJoinings(can(currentUser, 'joinings.view') ? d.joinings || [] : []);
+    setDashboardMetrics(currentUser.role !== 'FINANCE' ? d.dashboard ?? null : null);
+    setHrs(can(currentUser, 'hr_registry.manage') ? d.hrs || [] : []);
+  };
+
+  // Old backend (9 separate requests) - used if the Apps Script isn't updated yet
+  const loadLegacy = async (): Promise<AllData> => {
+    const [
+      bootstrapRes,
+      candidatesRes,
+      openingsRes,
+      clientsRes,
+      interviewsRes,
+      leadsRes,
+      joiningsRes,
+      dashboardRes,
+      hrsRes
+    ] = await Promise.all([
+      api.getBootstrap(),
+      can(currentUser, 'candidates.view') ? api.getCandidates() : Promise.resolve({ candidates: [] }),
+      can(currentUser, 'openings.view') ? api.getOpenings() : Promise.resolve({ openings: [] }),
+      can(currentUser, 'clients.view') ? api.getClients() : Promise.resolve({ clients: [] }),
+      can(currentUser, 'interviews.view') ? api.getInterviews() : Promise.resolve({ interviews: [] }),
+      can(currentUser, 'leads.view') ? api.getLeads() : Promise.resolve({ leads: [] }),
+      can(currentUser, 'joinings.view') ? api.getJoinings() : Promise.resolve({ joinings: [] }),
+      currentUser.role !== 'FINANCE' ? api.getDashboard() : Promise.resolve(null),
+      can(currentUser, 'hr_registry.manage') ? api.getHRs() : Promise.resolve({ hrs: [] })
+    ]);
+    return {
+      dropdowns: bootstrapRes.dropdowns,
+      candidates: candidatesRes.candidates || [],
+      openings: openingsRes.openings || [],
+      clients: clientsRes.clients || [],
+      interviews: interviewsRes.interviews || [],
+      leads: leadsRes.leads || [],
+      joinings: joiningsRes.joinings || [],
+      dashboard: dashboardRes,
+      hrs: hrsRes.hrs || []
+    };
+  };
+
+  // force=true (or a click event from a Refresh button) skips the server cache
+  const loadAllData = async (force?: unknown) => {
+    const forceFresh = !!force;
+
+    // 1. Show cached data immediately (stale-while-revalidate)
+    let hadCache = false;
+    if (!forceFresh) {
+      try {
+        const raw = localStorage.getItem(cacheKey);
+        if (raw) {
+          applyData(JSON.parse(raw) as AllData);
+          hadCache = true;
+        }
+      } catch {
+        // ignore corrupt cache
+      }
+    }
+
+    try {
+      if (!hadCache) setLoading(true);
+
+      // 2. Fetch fresh data in ONE request, falling back to the old endpoints
+      let data: AllData;
+      try {
+        const all = await api.getAll(forceFresh);
+        if (!all || !Array.isArray(all.candidates)) throw new Error('getAll not supported');
+        data = { ...all, dropdowns: all.bootstrap?.dropdowns };
+      } catch (err: any) {
+        if (!/Unknown GET action|not supported|Unauthorized|Access denied/i.test(err?.message || '')) {
+          console.warn('getAll failed, using legacy loading:', err);
+        }
+        if (/Unauthorized|Access denied/i.test(err?.message || '')) throw err;
+        data = await loadLegacy();
+      }
+
+      applyData(data);
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify(data));
+      } catch {
+        // storage full - skip caching
+      }
     } catch (e: any) {
       console.error('Failed to load CRM data:', e);
     } finally {
