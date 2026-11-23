@@ -204,6 +204,10 @@ class ApiClient {
       permissions: []
     };
     localStorage.removeItem('novapulse_current_user');
+    // Clear cached CRM data so it isn't left on shared computers
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith('novapulse_data_cache_'))
+      .forEach((k) => localStorage.removeItem(k));
   }
 
   // Network Request Helpers
@@ -259,6 +263,26 @@ class ApiClient {
   }
 
   // High-Level API Methods
+
+  /**
+   * PERF: Loads everything the app needs on startup in a single request.
+   * Pass force=true to skip the server cache (manual refresh).
+   */
+  async getAll(force: boolean = false) {
+    return this.get<{
+      bootstrap: { user: User; dropdowns: Record<string, DropdownOption[]>; config: Record<string, string> };
+      candidates: Candidate[];
+      openings: Opening[];
+      clients: Client[];
+      interviews: InterviewItem[];
+      leads: LeadItem[];
+      joinings: JoiningRecord[];
+      dashboard: DashboardMetrics | null;
+      hrs: HRRecord[];
+      errors?: Record<string, string>;
+    }>('getAll', force ? { nocache: '1' } : {});
+  }
+
   async getBootstrap() {
     return this.get<{ user: User; dropdowns: Record<string, DropdownOption[]>; config: Record<string, string> }>('getBootstrap');
   }
