@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Phone,
@@ -29,6 +29,8 @@ interface CandidateDrawerProps {
   currentUser: AuthUser;
   dropdowns: Record<string, DropdownOption[]>;
   onCandidateUpdated: (updated: Candidate) => void;
+  /** PERF: row already loaded in the list - shown instantly while full details load */
+  initialCandidate?: Candidate | null;
 }
 
 export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
@@ -36,7 +38,8 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
   onClose,
   currentUser,
   dropdowns,
-  onCandidateUpdated
+  onCandidateUpdated,
+  initialCandidate
 }) => {
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [formData, setFormData] = useState<Partial<Candidate>>({});
@@ -44,6 +47,10 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
   const [interviews, setInterviews] = useState<any[]>([]);
   const [reschedule, setReschedule] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  // true while full details (audit/interviews + latest record version) are loading
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const activeIdRef = useRef<string | null>(null);
+  const editedRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [conflictError, setConflictError] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
@@ -55,23 +62,40 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
       setFormData({});
       return;
     }
-    loadCandidateData(candidateId);
+    activeIdRef.current = candidateId;
+    editedRef.current = false;
+    const prefill = initialCandidate && initialCandidate['Candidate ID'] === candidateId ? initialCandidate : null;
+    if (prefill) {
+      // Show what we already have immediately
+      setCandidate(prefill);
+      setFormData(prefill);
+      setAudits([]);
+      setInterviews([]);
+      setReschedule(null);
+    }
+    loadCandidateData(candidateId, !!prefill);
   }, [candidateId]);
 
-  const loadCandidateData = async (id: string) => {
+  const loadCandidateData = async (id: string, prefilled: boolean = false) => {
     try {
-      setLoading(true);
+      if (!prefilled) setLoading(true);
+      setDetailsLoading(true);
       setConflictError(null);
       const res = await api.getCandidate(id);
+      if (activeIdRef.current !== id) return; // user switched candidate meanwhile
       setCandidate(res.candidate);
-      setFormData(res.candidate);
+      // Don't overwrite anything the user already started editing
+      if (!editedRef.current) setFormData(res.candidate);
       setAudits(res.audits || []);
       setInterviews(res.interviews || []);
       setReschedule(res.reschedule || null);
     } catch (e: any) {
-      alert('Failed to load candidate: ' + e.message);
+      if (activeIdRef.current === id) alert('Failed to load candidate: ' + e.message);
     } finally {
-      setLoading(false);
+      if (activeIdRef.current === id) {
+        setLoading(false);
+        setDetailsLoading(false);
+      }
     }
   };
 
@@ -97,6 +121,7 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
   };
 
   const handleFieldChange = (field: string, value: string) => {
+    editedRef.current = true;
     setFormData((prev) => {
       const next = { ...prev, [field]: value };
 
@@ -264,10 +289,10 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
           {canEdit && (
             <button
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || detailsLoading}
               className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-sm transition-colors disabled:opacity-50"
             >
-              <Save className="h-3.5 w-3.5" /> {saving ? 'Saving...' : 'Save Changes'}
+              <Save className="h-3.5 w-3.5" /> {saving ? 'Saving...' : detailsLoading ? 'Loading...' : 'Save Changes'}
             </button>
           )}
         </div>
