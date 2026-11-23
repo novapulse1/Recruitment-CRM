@@ -390,6 +390,7 @@ export const App: React.FC = () => {
       {/* Candidate Profile Drawer */}
       <CandidateDrawer
         candidateId={selectedCandidateId}
+        initialCandidate={candidates.find((c) => c['Candidate ID'] === selectedCandidateId) || null}
         onClose={() => setSelectedCandidateId(null)}
         currentUser={currentUser}
         dropdowns={dropdowns}
