@@ -15,6 +15,7 @@ export type UserRole =
 
 export interface User {
   authenticated: boolean;
+  user_id?: string;
   email: string;
   name: string;
   role: UserRole;
@@ -24,14 +25,28 @@ export interface User {
   canEditAll?: boolean;
   editableFields?: string[] | null;
   assignedCandidateCount?: string | number;
+  must_change_password?: boolean;
+  failed_attempts?: number;
+  locked_until?: string;
+  isLocked?: boolean;
+  last_login?: string;
+  token?: string;
   error?: string;
 }
 
 export interface RBACUser {
+  user_id?: string;
   email: string;
   name: string;
   role: UserRole;
   status: 'Active' | 'Inactive';
+  must_change_password?: boolean;
+  failed_attempts?: number;
+  locked_until?: string;
+  isLocked?: boolean;
+  last_login?: string;
+  password_updated_at?: string;
+  password_updated_by?: string;
   teamRecruiterEmails?: string[];
 }
 

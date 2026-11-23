@@ -28,24 +28,34 @@ import type {
 class ApiClient {
   private baseUrl: string = '';
   private currentUser: User = {
-    authenticated: true,
-    email: 'novapulse739@gmail.com',
-    name: 'Super Administrator',
-    role: 'SUPER_ADMIN',
-    permissions: ROLE_PERMISSIONS.SUPER_ADMIN,
-    canEditAll: true
+    authenticated: false,
+    email: '',
+    name: '',
+    role: 'DENIED',
+    permissions: []
   };
 
   constructor() {
     this.baseUrl = localStorage.getItem('novapulse_api_url') || APP_CONFIG.DEFAULT_API_URL || '';
-    const savedUser = localStorage.getItem('novapulse_current_user');
-    if (savedUser) {
+    this.loadSession();
+  }
+
+  loadSession(): boolean {
+    const raw = localStorage.getItem('novapulse_session');
+    if (raw) {
       try {
-        this.currentUser = JSON.parse(savedUser);
+        const session = JSON.parse(raw);
+        if (session.expiresAt && Date.now() < session.expiresAt && session.user && session.user.authenticated) {
+          this.currentUser = session.user;
+          return true;
+        } else {
+          this.logout();
+        }
       } catch (e) {
-        // use default admin
+        this.logout();
       }
     }
+    return false;
   }
 
   setBaseUrl(url: string) {
@@ -66,133 +76,344 @@ class ApiClient {
     localStorage.setItem('novapulse_current_user', JSON.stringify(user));
   }
 
-  async loginWithEmail(email: string): Promise<User> {
+  setSession(user: User, token?: string, rememberMe = false) {
+    this.currentUser = user;
+    const duration = rememberMe ? (7 * 24 * 3600 * 1000) : (8 * 3600 * 1000);
+    const sessionData = {
+      user,
+      token: token || user.token || 'NP_LOCAL_TOKEN',
+      expiresAt: Date.now() + duration,
+      rememberMe
+    };
+    localStorage.setItem('novapulse_session', JSON.stringify(sessionData));
+    localStorage.setItem('novapulse_current_user', JSON.stringify(user));
+  }
+
+  async login(identifier: string, password: string, rememberMe: boolean = false): Promise<User> {
     if (this.baseUrl) {
-      const resp = await this.get<{ user: User }>('auth', { userEmail: email });
-      if (resp.user && resp.user.authenticated) {
-        this.setCurrentUser(resp.user);
+      const resp = await this.post<{ success: boolean; user: User; token: string }>('login', {
+        identifier,
+        password,
+        rememberMe
+      });
+      if (resp && resp.user && resp.user.authenticated) {
+        this.setSession(resp.user, resp.token, rememberMe);
         return resp.user;
       }
-      throw new Error(resp.user?.error || 'Access denied');
+      throw new Error('Invalid User ID or password');
     }
 
-    // Local authentication resolution matching server rules
-    const cleanEmail = email.trim().toLowerCase();
+    return this.localLogin(identifier, password, rememberMe);
+  }
 
-    // 1. Super Admin
-    if (cleanEmail === 'novapulse739@gmail.com' || cleanEmail === 'superadmin@novapulse.co.in') {
-      const superAdminUser: User = {
-        authenticated: true,
-        email: cleanEmail,
-        name: 'Super Administrator',
-        role: 'SUPER_ADMIN',
-        permissions: ROLE_PERMISSIONS.SUPER_ADMIN,
-        canEditAll: true
-      };
-      this.setCurrentUser(superAdminUser);
-      return superAdminUser;
+  private async localLogin(identifier: string, password: string, rememberMe: boolean): Promise<User> {
+    const store = getLocalStore();
+    const cleanId = identifier.trim().toLowerCase();
+    const target = store.users.find((u: StoredUser) =>
+      u.user_id.toLowerCase() === cleanId || u.email.toLowerCase() === cleanId
+    );
+
+    if (!target) {
+      throw new Error('Invalid User ID or password');
     }
 
-    // 2. Admin
-    if (cleanEmail === 'admin@novapulse.co.in') {
-      const adminUser: User = {
-        authenticated: true,
-        email: cleanEmail,
-        name: 'Management Admin',
-        role: 'ADMIN',
-        permissions: ROLE_PERMISSIONS.ADMIN,
-        canEditAll: true
-      };
-      this.setCurrentUser(adminUser);
-      return adminUser;
+    if (target.status !== 'Active') {
+      throw new Error('Your account is deactivated. Contact Admin.');
     }
 
-    // 3. Recruitment Manager
-    if (cleanEmail === 'manager@novapulse.co.in') {
-      const managerUser: User = {
-        authenticated: true,
-        email: cleanEmail,
-        name: 'Recruitment Manager',
-        role: 'RECRUITMENT_MANAGER',
-        permissions: ROLE_PERMISSIONS.RECRUITMENT_MANAGER,
-        teamRecruiterEmails: ['hr@novapulse.co.in', 'gjigyasa11@gmail.com'],
-        canEditAll: false,
-        editableFields: [
-          'Designation Applied', 'Current Location', 'Experience', 'Current Salary', 'Expected Salary',
-          'Notice Period', 'Source', 'Client Name', 'Industry', 'Calling Disposition',
-          'Sub-Disposition', 'Call Status', 'Connect Status', 'Interview Status', 'Interview Date',
-          'Selection Status', 'Joining Status', 'Joining Date', 'Remarks'
-        ]
-      };
-      this.setCurrentUser(managerUser);
-      return managerUser;
+    if (target.locked_until) {
+      const lockUntil = new Date(target.locked_until).getTime();
+      const now = Date.now();
+      if (now < lockUntil) {
+        const remainingMinutes = Math.ceil((lockUntil - now) / 60000);
+        const err = new Error(`Account is temporarily locked. Please try again in ${remainingMinutes} minute(s) or contact Admin.`);
+        (err as any).isLocked = true;
+        throw err;
+      }
     }
 
-    // 4. Finance
-    if (cleanEmail === 'finance@novapulse.co.in' || cleanEmail === 'accounts@novapulse.co.in') {
-      const financeUser: User = {
-        authenticated: true,
-        email: cleanEmail,
-        name: 'Finance Executive',
-        role: 'FINANCE',
-        permissions: ROLE_PERMISSIONS.FINANCE,
-        canEditAll: false,
-        editableFields: []
-      };
-      this.setCurrentUser(financeUser);
-      return financeUser;
+    const computedHash = await computePbkdf2Hash(password, target.salt);
+    if (computedHash !== target.password_hash) {
+      target.failed_attempts = (target.failed_attempts || 0) + 1;
+      store.audits = store.audits || [];
+
+      if (target.failed_attempts >= 5) {
+        target.locked_until = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+        store.audits.unshift({
+          'Timestamp': new Date().toLocaleString('en-GB'),
+          'Candidate ID': 'AUTH',
+          'Candidate Name': target.user_id,
+          'Previous Value': 'Active (5 failed attempts)',
+          'New Value': 'Locked for 15 Minutes',
+          'Action': 'ACCOUNT_LOCKED',
+          'Updated By': target.user_id,
+          'HR Name': 'Security Policy',
+          'Source Spreadsheet': 'USERS',
+          'Action Type': 'SECURITY'
+        });
+        saveLocalStore(store);
+        const err = new Error('Invalid User ID or password. Account has been locked for 15 minutes due to 5 consecutive failed attempts.');
+        (err as any).isLocked = true;
+        throw err;
+      }
+
+      store.audits.unshift({
+        'Timestamp': new Date().toLocaleString('en-GB'),
+        'Candidate ID': 'AUTH',
+        'Candidate Name': target.user_id,
+        'Previous Value': 'Login Attempt',
+        'New Value': `Failed Attempt ${target.failed_attempts}/5`,
+        'Action': 'LOGIN_FAILED',
+        'Updated By': target.user_id,
+        'HR Name': 'Auth System',
+        'Source Spreadsheet': 'USERS',
+        'Action Type': 'SECURITY'
+      });
+      saveLocalStore(store);
+      throw new Error('Invalid User ID or password');
     }
 
-    // 5. HR Recruiter (Anshu)
-    if (cleanEmail === 'hr@novapulse.co.in') {
-      const hrUser: User = {
-        authenticated: true,
-        email: cleanEmail,
-        name: 'Anshu',
-        role: 'HR_RECRUITER',
-        permissions: ROLE_PERMISSIONS.HR_RECRUITER,
-        hrId: 'NP-HR-001',
-        canEditAll: false,
-        assignedCandidateCount: '75',
-        editableFields: [
-          'Designation Applied', 'Current Location', 'Experience', 'Current Salary', 'Expected Salary',
-          'Notice Period', 'Source', 'Client Name', 'Industry', 'Calling Disposition',
-          'Sub-Disposition', 'Call Status', 'Connect Status', 'Interview Status', 'Interview Date',
-          'Selection Status', 'Joining Status', 'Joining Date', 'Remarks'
-        ]
-      };
-      this.setCurrentUser(hrUser);
-      return hrUser;
+    target.failed_attempts = 0;
+    target.locked_until = '';
+    target.last_login = new Date().toISOString();
+    store.audits = store.audits || [];
+    store.audits.unshift({
+      'Timestamp': new Date().toLocaleString('en-GB'),
+      'Candidate ID': 'AUTH',
+      'Candidate Name': target.user_id,
+      'Previous Value': 'Unauthenticated',
+      'New Value': `Login Success (${target.role})`,
+      'Action': 'LOGIN_SUCCESS',
+      'Updated By': target.email,
+      'HR Name': target.name,
+      'Source Spreadsheet': 'USERS',
+      'Action Type': 'SECURITY'
+    });
+    saveLocalStore(store);
+
+    const userObj: User = {
+      authenticated: true,
+      user_id: target.user_id,
+      email: target.email,
+      name: target.name,
+      role: target.role,
+      permissions: ROLE_PERMISSIONS[target.role] || [],
+      canEditAll: target.role === 'SUPER_ADMIN' || target.role === 'ADMIN',
+      teamRecruiterEmails: target.teamRecruiterEmails || (target.role === 'RECRUITMENT_MANAGER' ? ['hr@novapulse.co.in', 'gjigyasa11@gmail.com'] : []),
+      must_change_password: !!target.must_change_password,
+      last_login: target.last_login
+    };
+
+    this.setSession(userObj, 'NP_SESSION_' + Math.random().toString(36).substring(2), rememberMe);
+    return userObj;
+  }
+
+  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
+    if (newPassword.length < 8) {
+      throw new Error('Password must be at least 8 characters long.');
+    }
+    if (!/[A-Z]/.test(newPassword)) {
+      throw new Error('Password must contain at least one uppercase letter.');
+    }
+    if (!/[0-9]/.test(newPassword)) {
+      throw new Error('Password must contain at least one number.');
+    }
+    if (!/[^A-Za-z0-9]/.test(newPassword)) {
+      throw new Error('Password must contain at least one special character.');
+    }
+    if (oldPassword === newPassword) {
+      throw new Error('New password must be different from current password.');
     }
 
-    // 6. HR Recruiter (Jigyasha)
-    if (cleanEmail === 'gjigyasa11@gmail.com') {
-      const hrUser: User = {
-        authenticated: true,
-        email: cleanEmail,
-        name: 'Jigyasha',
-        role: 'HR_RECRUITER',
-        permissions: ROLE_PERMISSIONS.HR_RECRUITER,
-        hrId: 'NP-HR-002',
-        canEditAll: false,
-        assignedCandidateCount: '437',
-        editableFields: [
-          'Designation Applied', 'Current Location', 'Experience', 'Current Salary', 'Expected Salary',
-          'Notice Period', 'Source', 'Client Name', 'Industry', 'Calling Disposition',
-          'Sub-Disposition', 'Call Status', 'Connect Status', 'Interview Status', 'Interview Date',
-          'Selection Status', 'Joining Status', 'Joining Date', 'Remarks'
-        ]
-      };
-      this.setCurrentUser(hrUser);
-      return hrUser;
+    if (this.baseUrl) {
+      await this.post('changePassword', { oldPassword, newPassword });
+    } else {
+      const store = getLocalStore();
+      const user = store.users.find((u: StoredUser) => u.email.toLowerCase() === this.currentUser.email.toLowerCase());
+      if (!user) throw new Error('User not found');
+      
+      const oldComputed = await computePbkdf2Hash(oldPassword, user.salt);
+      if (oldComputed !== user.password_hash) {
+        throw new Error('Current password is incorrect.');
+      }
+
+      const newSalt = generateRandomSalt();
+      const newHash = await computePbkdf2Hash(newPassword, newSalt);
+      user.password_hash = newHash;
+      user.salt = newSalt;
+      user.must_change_password = false;
+      user.password_updated_at = new Date().toISOString();
+      user.password_updated_by = this.currentUser.email;
+
+      store.audits = store.audits || [];
+      store.audits.unshift({
+        'Timestamp': new Date().toLocaleString('en-GB'),
+        'Candidate ID': 'AUTH',
+        'Candidate Name': user.user_id,
+        'Previous Value': 'Previous Password',
+        'New Value': 'Password Updated by User',
+        'Action': 'PASSWORD_CHANGED',
+        'Updated By': this.currentUser.email,
+        'HR Name': this.currentUser.name,
+        'Source Spreadsheet': 'USERS',
+        'Action Type': 'SECURITY'
+      });
+
+      saveLocalStore(store);
     }
 
-    // 7. Inactive Recruiter
-    if (cleanEmail === 'inactive.hr@novapulse.co.in') {
-      throw new Error('Account Inactive: Your recruiter account has been disabled. Please contact Management.');
+    this.currentUser.must_change_password = false;
+    this.setSession(this.currentUser);
+  }
+
+  async adminResetPassword(targetEmail: string, temporaryPassword?: string): Promise<{ temporaryPassword: string }> {
+    if (this.baseUrl) {
+      return this.post<{ temporaryPassword: string }>('adminResetPassword', { targetEmail, temporaryPassword });
     }
 
-    throw new Error('Access denied: Email is not registered in NovaPulse CRM.');
+    const store = getLocalStore();
+    const target = store.users.find((u: StoredUser) => u.email.toLowerCase() === targetEmail.toLowerCase());
+    if (!target) throw new Error('Target user not found');
+
+    if (this.currentUser.role !== 'SUPER_ADMIN') {
+      if (target.role === 'SUPER_ADMIN' || target.role === 'ADMIN') {
+        throw new Error('Forbidden: Admins cannot reset Super Admin or Admin accounts.');
+      }
+    }
+
+    const temp = temporaryPassword || generateRandomPassword(12);
+    const salt = generateRandomSalt();
+    const hash = await computePbkdf2Hash(temp, salt);
+
+    target.password_hash = hash;
+    target.salt = salt;
+    target.must_change_password = true;
+    target.failed_attempts = 0;
+    target.locked_until = '';
+    target.password_updated_at = new Date().toISOString();
+    target.password_updated_by = this.currentUser.email;
+
+    store.audits = store.audits || [];
+    store.audits.unshift({
+      'Timestamp': new Date().toLocaleString('en-GB'),
+      'Candidate ID': 'AUTH',
+      'Candidate Name': target.user_id,
+      'Previous Value': 'Active Password',
+      'New Value': 'Temp Password Reset',
+      'Action': 'ADMIN_PASSWORD_RESET',
+      'Updated By': this.currentUser.email,
+      'HR Name': this.currentUser.name,
+      'Source Spreadsheet': 'USERS',
+      'Action Type': 'SECURITY'
+    });
+
+    saveLocalStore(store);
+    return { temporaryPassword: temp };
+  }
+
+  async adminSetPassword(targetEmail: string, password: string): Promise<void> {
+    if (this.baseUrl) {
+      await this.post('adminResetPassword', { targetEmail, temporaryPassword: password });
+      return;
+    }
+
+    const store = getLocalStore();
+    const target = store.users.find((u: StoredUser) => u.email.toLowerCase() === targetEmail.toLowerCase());
+    if (!target) throw new Error('Target user not found');
+
+    if (this.currentUser.role !== 'SUPER_ADMIN') {
+      if (target.role === 'SUPER_ADMIN' || target.role === 'ADMIN') {
+        throw new Error('Forbidden: Admins cannot reset Super Admin or Admin accounts.');
+      }
+    }
+
+    const salt = generateRandomSalt();
+    const hash = await computePbkdf2Hash(password, salt);
+    target.password_hash = hash;
+    target.salt = salt;
+    target.must_change_password = false;
+    target.failed_attempts = 0;
+    target.locked_until = '';
+    target.password_updated_at = new Date().toISOString();
+    target.password_updated_by = this.currentUser.email;
+    saveLocalStore(store);
+  }
+
+  async adminUnlockAccount(targetEmail: string): Promise<void> {
+    if (this.baseUrl) {
+      await this.post('adminUnlockAccount', { targetEmail });
+      return;
+    }
+
+    const store = getLocalStore();
+    const target = store.users.find((u: StoredUser) => u.email.toLowerCase() === targetEmail.toLowerCase());
+    if (!target) throw new Error('Target user not found');
+
+    if (this.currentUser.role !== 'SUPER_ADMIN' && target.role === 'SUPER_ADMIN') {
+      throw new Error('Forbidden: Only Super Admin can unlock a Super Admin account.');
+    }
+
+    target.failed_attempts = 0;
+    target.locked_until = '';
+
+    store.audits = store.audits || [];
+    store.audits.unshift({
+      'Timestamp': new Date().toLocaleString('en-GB'),
+      'Candidate ID': 'AUTH',
+      'Candidate Name': target.user_id,
+      'Previous Value': 'Locked',
+      'New Value': 'Unlocked',
+      'Action': 'ACCOUNT_UNLOCKED',
+      'Updated By': this.currentUser.email,
+      'HR Name': this.currentUser.name,
+      'Source Spreadsheet': 'USERS',
+      'Action Type': 'SECURITY'
+    });
+
+    saveLocalStore(store);
+  }
+
+  async adminToggleUserStatus(targetEmail: string, newStatus: 'Active' | 'Inactive'): Promise<void> {
+    if (targetEmail.toLowerCase() === 'novapulse739@gmail.com') {
+      throw new Error('Forbidden: Root Super Admin account cannot be deactivated.');
+    }
+
+    if (this.baseUrl) {
+      await this.post('adminToggleUserStatus', { targetEmail, newStatus });
+      return;
+    }
+
+    const store = getLocalStore();
+    const target = store.users.find((u: StoredUser) => u.email.toLowerCase() === targetEmail.toLowerCase());
+    if (!target) throw new Error('Target user not found');
+
+    if (this.currentUser.role !== 'SUPER_ADMIN') {
+      if (target.role === 'SUPER_ADMIN' || target.role === 'ADMIN') {
+        throw new Error('Forbidden: Admins cannot modify Super Admin or Admin accounts.');
+      }
+    }
+
+    target.status = newStatus;
+    const hr = (store.hrs || []).find((h: any) => h['HR Email']?.toLowerCase() === targetEmail.toLowerCase());
+    if (hr) {
+      hr['Active Status'] = newStatus;
+    }
+
+    store.audits = store.audits || [];
+    store.audits.unshift({
+      'Timestamp': new Date().toLocaleString('en-GB'),
+      'Candidate ID': 'AUTH',
+      'Candidate Name': target.user_id,
+      'Previous Value': target.status === 'Active' ? 'Inactive' : 'Active',
+      'New Value': newStatus,
+      'Action': 'TOGGLE_USER_STATUS',
+      'Updated By': this.currentUser.email,
+      'HR Name': this.currentUser.name,
+      'Source Spreadsheet': 'USERS',
+      'Action Type': 'SECURITY'
+    });
+
+    saveLocalStore(store);
   }
 
   logout() {
@@ -203,11 +424,31 @@ class ApiClient {
       role: 'DENIED',
       permissions: []
     };
+    localStorage.removeItem('novapulse_session');
     localStorage.removeItem('novapulse_current_user');
-    // Clear cached CRM data so it isn't left on shared computers
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith('novapulse_data_cache_'))
-      .forEach((k) => localStorage.removeItem(k));
+  }
+
+  async loginWithEmail(email: string): Promise<User> {
+    const store = getLocalStore();
+    const clean = email.trim().toLowerCase();
+    const u = store.users.find((x: StoredUser) => x.email.toLowerCase() === clean || x.user_id.toLowerCase() === clean);
+    if (!u) throw new Error('User not registered in NovaPulse CRM');
+    if (u.status !== 'Active') throw new Error('Your account is deactivated. Contact Admin.');
+
+    const userObj: User = {
+      authenticated: true,
+      user_id: u.user_id,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      permissions: ROLE_PERMISSIONS[u.role] || [],
+      canEditAll: u.role === 'SUPER_ADMIN' || u.role === 'ADMIN',
+      teamRecruiterEmails: u.teamRecruiterEmails || (u.role === 'RECRUITMENT_MANAGER' ? ['hr@novapulse.co.in', 'gjigyasa11@gmail.com'] : []),
+      must_change_password: !!u.must_change_password,
+      last_login: u.last_login
+    };
+    this.setSession(userObj, 'NP_TEST_TOKEN', false);
+    return userObj;
   }
 
   // Network Request Helpers
@@ -263,26 +504,6 @@ class ApiClient {
   }
 
   // High-Level API Methods
-
-  /**
-   * PERF: Loads everything the app needs on startup in a single request.
-   * Pass force=true to skip the server cache (manual refresh).
-   */
-  async getAll(force: boolean = false) {
-    return this.get<{
-      bootstrap: { user: User; dropdowns: Record<string, DropdownOption[]>; config: Record<string, string> };
-      candidates: Candidate[];
-      openings: Opening[];
-      clients: Client[];
-      interviews: InterviewItem[];
-      leads: LeadItem[];
-      joinings: JoiningRecord[];
-      dashboard: DashboardMetrics | null;
-      hrs: HRRecord[];
-      errors?: Record<string, string>;
-    }>('getAll', force ? { nocache: '1' } : {});
-  }
-
   async getBootstrap() {
     return this.get<{ user: User; dropdowns: Record<string, DropdownOption[]>; config: Record<string, string> }>('getBootstrap');
   }
@@ -554,15 +775,26 @@ class ApiClient {
         'manager@novapulse.co.in': ['hr@novapulse.co.in', 'gjigyasa11@gmail.com']
       };
 
-      const users: RBACUser[] = [
-        { email: 'novapulse739@gmail.com', name: 'Super Administrator', role: 'SUPER_ADMIN', status: 'Active' },
-        { email: 'admin@novapulse.co.in', name: 'Management Admin', role: 'ADMIN', status: 'Active' },
-        { email: 'manager@novapulse.co.in', name: 'Recruitment Manager', role: 'RECRUITMENT_MANAGER', status: 'Active', teamRecruiterEmails: teamMapping['manager@novapulse.co.in'] || [] },
-        { email: 'hr@novapulse.co.in', name: 'Anshu', role: 'HR_RECRUITER', status: 'Active' },
-        { email: 'gjigyasa11@gmail.com', name: 'Jigyasha', role: 'HR_RECRUITER', status: 'Active' },
-        { email: 'finance@novapulse.co.in', name: 'Finance Executive', role: 'FINANCE', status: 'Active' },
-        { email: 'inactive.hr@novapulse.co.in', name: 'Deactivated HR', role: 'DENIED', status: 'Inactive' }
-      ];
+      const now = Date.now();
+      const userList = (store.users && store.users.length > 0) ? store.users : INITIAL_USERS;
+      const users: RBACUser[] = userList.map((u: StoredUser) => {
+        const isLocked = !!(u.locked_until && new Date(u.locked_until).getTime() > now);
+        return {
+          user_id: u.user_id,
+          email: u.email,
+          name: u.name,
+          role: u.role,
+          status: u.status,
+          must_change_password: !!u.must_change_password,
+          failed_attempts: u.failed_attempts || 0,
+          locked_until: u.locked_until || '',
+          isLocked: isLocked,
+          last_login: u.last_login || '',
+          password_updated_at: u.password_updated_at || '',
+          password_updated_by: u.password_updated_by || '',
+          teamRecruiterEmails: u.teamRecruiterEmails || (teamMapping[u.email] || [])
+        };
+      });
 
       return {
         users,
@@ -891,12 +1123,177 @@ class ApiClient {
   }
 }
 
+// Crypto & Password Helpers
+async function computePbkdf2Hash(password: string, saltHex: string): Promise<string> {
+  const enc = new TextEncoder();
+  const keyMaterial = await window.crypto.subtle.importKey(
+    'raw',
+    enc.encode(password),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits']
+  );
+  const saltBytes = new Uint8Array(saltHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
+  const derivedBits = await window.crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: saltBytes,
+      iterations: 10000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    256
+  );
+  return Array.from(new Uint8Array(derivedBits))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function generateRandomSalt(): string {
+  const arr = new Uint8Array(16);
+  window.crypto.getRandomValues(arr);
+  return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function generateRandomPassword(length = 12): string {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghijkmnopqrstuvwxyz';
+  const digits = '23456789';
+  const symbols = '!@#$%^&*';
+  const all = upper + lower + digits + symbols;
+  let pwd = '';
+  pwd += upper[Math.floor(Math.random() * upper.length)];
+  pwd += lower[Math.floor(Math.random() * lower.length)];
+  pwd += digits[Math.floor(Math.random() * digits.length)];
+  pwd += symbols[Math.floor(Math.random() * symbols.length)];
+  for (let i = 4; i < length; i++) {
+    pwd += all[Math.floor(Math.random() * all.length)];
+  }
+  return pwd.split('').sort(() => 0.5 - Math.random()).join('');
+}
+
+interface StoredUser {
+  user_id: string;
+  email: string;
+  name: string;
+  password_hash: string;
+  salt: string;
+  role: UserRole;
+  status: 'Active' | 'Inactive';
+  must_change_password: boolean;
+  failed_attempts: number;
+  locked_until: string;
+  last_login: string;
+  password_updated_at: string;
+  password_updated_by: string;
+  teamRecruiterEmails?: string[];
+}
+
+const INITIAL_USERS: StoredUser[] = [
+  {
+    user_id: 'superadmin',
+    email: 'novapulse739@gmail.com',
+    name: 'Super Administrator',
+    password_hash: '7df2895ecc035ab6b24078d191b8cc41001bf89dba9ef19c862b91410461f4ca', // Admin@NovaPulse2026!
+    salt: '073c42a38848186f85affa1cf3e62d6c',
+    role: 'SUPER_ADMIN',
+    status: 'Active',
+    must_change_password: true,
+    failed_attempts: 0,
+    locked_until: '',
+    last_login: '',
+    password_updated_at: '2026-11-23T14:00:00.000Z',
+    password_updated_by: 'system_seed'
+  },
+  {
+    user_id: 'admin',
+    email: 'admin@novapulse.co.in',
+    name: 'Recruitment Admin',
+    password_hash: '344d8900c2dd0afddf54e0b76e2b280802da156263c5012f193ecacbb23bbb32', // NovaPulse@2026!
+    salt: '9b35e06e36507d5f76977ad6831f119b',
+    role: 'ADMIN',
+    status: 'Active',
+    must_change_password: true,
+    failed_attempts: 0,
+    locked_until: '',
+    last_login: '',
+    password_updated_at: '2026-11-23T14:00:00.000Z',
+    password_updated_by: 'system_seed'
+  },
+  {
+    user_id: 'manager',
+    email: 'manager@novapulse.co.in',
+    name: 'Recruitment Manager',
+    password_hash: '01c4fad83635169c99c235a45445fdbd88966e1aa964cd6eee25706605ce8fdb', // NovaPulse@2026!
+    salt: '53e7257a1a9f722a0974a07dfdc43cfc',
+    role: 'RECRUITMENT_MANAGER',
+    status: 'Active',
+    must_change_password: true,
+    failed_attempts: 0,
+    locked_until: '',
+    last_login: '',
+    password_updated_at: '2026-11-23T14:00:00.000Z',
+    password_updated_by: 'system_seed',
+    teamRecruiterEmails: ['hr@novapulse.co.in', 'gjigyasa11@gmail.com']
+  },
+  {
+    user_id: 'anshu',
+    email: 'hr@novapulse.co.in',
+    name: 'Anshu (Recruiter)',
+    password_hash: 'c32e2f79fd92160a501ef56c5e4bbf24325a49ee7329bc11cd23be8b5a88e749', // NovaPulse@2026!
+    salt: '5dee0700a2ed4320ec99f14af52e3bb9',
+    role: 'HR_RECRUITER',
+    status: 'Active',
+    must_change_password: true,
+    failed_attempts: 0,
+    locked_until: '',
+    last_login: '',
+    password_updated_at: '2026-11-23T14:00:00.000Z',
+    password_updated_by: 'system_seed'
+  },
+  {
+    user_id: 'jigyasa',
+    email: 'gjigyasa11@gmail.com',
+    name: 'Jigyasha (Recruiter)',
+    password_hash: '9d832c9eeab07288ca49ad8b7ca6cf7651cc58911a225497bf56577d46a3b4c9', // NovaPulse@2026!
+    salt: '2752e870fa2484f821b3ed6d4729dd43',
+    role: 'HR_RECRUITER',
+    status: 'Active',
+    must_change_password: true,
+    failed_attempts: 0,
+    locked_until: '',
+    last_login: '',
+    password_updated_at: '2026-11-23T14:00:00.000Z',
+    password_updated_by: 'system_seed'
+  },
+  {
+    user_id: 'finance',
+    email: 'finance@novapulse.co.in',
+    name: 'Finance Officer',
+    password_hash: '08be5b2909edc5ddf76fae29e9b99419503099a0b5ee313e40ad3b61b5471ec0', // NovaPulse@2026!
+    salt: '4aa0c741be05e3d015237ee475755c3e',
+    role: 'FINANCE',
+    status: 'Active',
+    must_change_password: true,
+    failed_attempts: 0,
+    locked_until: '',
+    last_login: '',
+    password_updated_at: '2026-11-23T14:00:00.000Z',
+    password_updated_by: 'system_seed'
+  }
+];
+
 // Initial seed store
 function getLocalStore() {
   const existing = localStorage.getItem('novapulse_local_db');
   if (existing) {
     try {
-      return JSON.parse(existing);
+      const parsed = JSON.parse(existing);
+      if (!parsed.users || !parsed.users.length) {
+        parsed.users = [...INITIAL_USERS];
+        saveLocalStore(parsed);
+      }
+      return parsed;
     } catch (e) {
       // fallback to initial
     }
@@ -1278,7 +1675,8 @@ function getLocalStore() {
         { List: 'Industry', Option: 'Other', Active: 'TRUE', System: 'FALSE' }
       ]
     },
-    allDropdowns: []
+    allDropdowns: [],
+    users: [...INITIAL_USERS]
   };
 
   saveLocalStore(initialStore);

@@ -21,10 +21,15 @@ import {
   Save,
   Check,
   Lock,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Unlock,
+  Key,
+  Copy,
+  CheckCheck,
+  Power
 } from 'lucide-react';
 import { api } from '../services/api';
-import { PERMISSIONS, ROLE_PERMISSIONS, getCandidateDataScope } from '../services/permissions';
+import { PERMISSIONS, ROLE_PERMISSIONS, getCandidateDataScope, can } from '../services/permissions';
 import type { User, UserRole, RBACOverview, RBACUser } from '../types';
 
 interface RBACManagementViewProps {
@@ -41,6 +46,13 @@ export const RBACManagementView: React.FC<RBACManagementViewProps> = ({ currentU
   const [editRole, setEditRole] = useState<UserRole>('HR_RECRUITER');
   const [savingRole, setSavingRole] = useState<boolean>(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Password & Account Management state
+  const [resetPasswordUser, setResetPasswordUser] = useState<RBACUser | null>(null);
+  const [generatedTempPassword, setGeneratedTempPassword] = useState<string>('');
+  const [copiedPassword, setCopiedPassword] = useState<boolean>(false);
+  const [savingPassword, setSavingPassword] = useState<boolean>(false);
+  const [actionProcessing, setActionProcessing] = useState<string | null>(null);
 
   // Team mapping editing state
   const [selectedManager, setSelectedManager] = useState<string>('manager@novapulse.co.in');
@@ -104,6 +116,85 @@ export const RBACManagementView: React.FC<RBACManagementViewProps> = ({ currentU
     } finally {
       setSavingTeam(false);
     }
+  };
+
+  const generateTempPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    let pwd = 'NP-';
+    for (let i = 0; i < 9; i++) {
+      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setGeneratedTempPassword(pwd);
+    setCopiedPassword(false);
+  };
+
+  const handleOpenResetModal = (targetUser: RBACUser) => {
+    setResetPasswordUser(targetUser);
+    generateTempPassword();
+  };
+
+  const handleCopyPassword = () => {
+    if (generatedTempPassword) {
+      navigator.clipboard.writeText(generatedTempPassword);
+      setCopiedPassword(true);
+      setTimeout(() => setCopiedPassword(false), 2000);
+    }
+  };
+
+  const handleConfirmResetPassword = async () => {
+    if (!resetPasswordUser || !generatedTempPassword) return;
+    setSavingPassword(true);
+    setMessage(null);
+    try {
+      await api.adminResetPassword(resetPasswordUser.email, generatedTempPassword);
+      setMessage({
+        type: 'success',
+        text: `Temporary password successfully set for ${resetPasswordUser.email}! User must change it on next login.`
+      });
+      setResetPasswordUser(null);
+      await fetchRBACData();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err?.message || 'Failed to reset password' });
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
+  const handleUnlockAccount = async (targetUser: RBACUser) => {
+    setActionProcessing(targetUser.email);
+    setMessage(null);
+    try {
+      await api.adminUnlockAccount(targetUser.email);
+      setMessage({ type: 'success', text: `Account for ${targetUser.email} has been unlocked.` });
+      await fetchRBACData();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err?.message || 'Failed to unlock account' });
+    } finally {
+      setActionProcessing(null);
+    }
+  };
+
+  const handleToggleStatus = async (targetUser: RBACUser) => {
+    const nextStatus = targetUser.status === 'Active' ? 'Inactive' : 'Active';
+    setActionProcessing(targetUser.email);
+    setMessage(null);
+    try {
+      await api.adminToggleUserStatus(targetUser.email, nextStatus);
+      setMessage({ type: 'success', text: `Account status for ${targetUser.email} set to ${nextStatus}.` });
+      await fetchRBACData();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err?.message || 'Failed to update account status' });
+    } finally {
+      setActionProcessing(null);
+    }
+  };
+
+  const canManageTarget = (target: RBACUser) => {
+    if (currentUser.role === 'SUPER_ADMIN') return true;
+    if (currentUser.role === 'ADMIN') {
+      return target.role !== 'SUPER_ADMIN' && target.role !== 'ADMIN';
+    }
+    return false;
   };
 
   const getRoleBadge = (role: UserRole) => {
@@ -191,7 +282,8 @@ export const RBACManagementView: React.FC<RBACManagementViewProps> = ({ currentU
         { key: PERMISSIONS.HR_REGISTRY_MANAGE, label: 'Manage HR Registry', desc: 'Add recruiters, toggle active status' },
         { key: PERMISSIONS.AUDIT_LOGS_VIEW, label: 'View Audit Logs', desc: 'Access complete audit & conflict queues' },
         { key: PERMISSIONS.SETTINGS_MANAGE, label: 'Manage Dropdowns & Lists', desc: 'Add/toggle disposition and client options' },
-        { key: PERMISSIONS.RBAC_MANAGE, label: 'Manage RBAC Engine', desc: 'Assign roles, update teams, security rules' }
+        { key: PERMISSIONS.RBAC_MANAGE, label: 'Manage RBAC Engine', desc: 'Assign roles, update teams, security rules' },
+        { key: PERMISSIONS.USERS_PASSWORD_MANAGE, label: 'Manage User Passwords & Accounts', desc: 'Reset passwords, unlock accounts, activate/deactivate accounts' }
       ]
     }
   ];
@@ -231,7 +323,7 @@ export const RBACManagementView: React.FC<RBACManagementViewProps> = ({ currentU
                 <ShieldCheck className="w-6 h-6" />
               </span>
               <span className="text-xs font-semibold uppercase tracking-wider text-purple-300 bg-purple-500/20 px-2.5 py-1 rounded-full border border-purple-400/20">
-                Super Admin Control Panel
+                {currentUser.role === 'SUPER_ADMIN' ? 'Super Admin Control Panel' : 'Admin Operations Control'}
               </span>
               <span className="text-xs font-semibold uppercase tracking-wider text-emerald-300 bg-emerald-500/20 px-2.5 py-1 rounded-full border border-emerald-400/20 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -361,63 +453,257 @@ export const RBACManagementView: React.FC<RBACManagementViewProps> = ({ currentU
                 <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold uppercase tracking-wider">
                   <th className="py-3 px-4">User</th>
                   <th className="py-3 px-4">Current Role</th>
-                  <th className="py-3 px-4">Account Status</th>
+                  <th className="py-3 px-4">Account & Security</th>
                   <th className="py-3 px-4">Data Access Scope</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredUsers.map((userItem) => (
-                  <tr key={userItem.email} className="hover:bg-purple-50/30 transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="font-medium text-gray-900">{userItem.name}</div>
-                      <div className="text-gray-500 font-mono text-[11px]">{userItem.email}</div>
-                    </td>
-                    <td className="py-3 px-4">
-                      {getRoleBadge(userItem.role)}
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                        userItem.status === 'Active' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${userItem.status === 'Active' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                        {userItem.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-gray-600">
-                      {userItem.role === 'SUPER_ADMIN' || userItem.role === 'ADMIN' ? (
-                        <span className="font-medium text-purple-700">All Records (Global Master)</span>
-                      ) : userItem.role === 'RECRUITMENT_MANAGER' ? (
-                        <span className="text-blue-700 font-medium">Team Mapped ({(userItem.teamRecruiterEmails || []).length} Recruiters)</span>
-                      ) : userItem.role === 'HR_RECRUITER' || userItem.role === 'HR' ? (
-                        <span className="text-emerald-700 font-medium">Self Pipeline ({userItem.email})</span>
-                      ) : userItem.role === 'FINANCE' ? (
-                        <span className="text-amber-700 font-medium">Joinings & Billing Only (PII Masked)</span>
-                      ) : (
-                        <span className="text-rose-600 font-medium">No Access (Denied)</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      {userItem.email === 'novapulse739@gmail.com' ? (
-                        <span className="text-[11px] text-gray-400 italic flex items-center justify-end gap-1">
-                          <Lock className="w-3 h-3" /> Root Super Admin
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            setSelectedUserForEdit(userItem);
-                            setEditRole(userItem.role);
-                          }}
-                          className="px-2.5 py-1 bg-white border border-gray-300 hover:border-purple-500 hover:text-purple-700 rounded-md text-xs font-medium shadow-2xs transition-colors"
-                        >
-                          Modify Role
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {filteredUsers.map((userItem) => {
+                  const isRootSuperAdmin = userItem.email === 'novapulse739@gmail.com';
+                  const canManage = canManageTarget(userItem);
+                  const canModifyRoles = currentUser.role === 'SUPER_ADMIN';
+
+                  return (
+                    <tr key={userItem.email} className="hover:bg-purple-50/30 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="font-semibold text-gray-900">{userItem.name}</div>
+                        <div className="text-gray-500 font-mono text-[11px]">
+                          {userItem.user_id ? `${userItem.user_id} • ` : ''}{userItem.email}
+                        </div>
+                        {userItem.last_login && (
+                          <div className="text-[10px] text-gray-400 mt-0.5">
+                            Last login: {new Date(userItem.last_login).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        {getRoleBadge(userItem.role)}
+                      </td>
+                      <td className="py-3 px-4 space-y-1">
+                        <div>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                            userItem.status === 'Active' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${userItem.status === 'Active' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                            {userItem.status}
+                          </span>
+                        </div>
+                        {userItem.isLocked && (
+                          <div>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                              <Lock className="w-3 h-3 text-amber-700" /> Locked (5 fails)
+                            </span>
+                          </div>
+                        )}
+                        {userItem.must_change_password && !userItem.isLocked && (
+                          <div>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                              Must Change Password
+                            </span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-gray-600">
+                        {userItem.role === 'SUPER_ADMIN' || userItem.role === 'ADMIN' ? (
+                          <span className="font-medium text-purple-700">All Records (Global Master)</span>
+                        ) : userItem.role === 'RECRUITMENT_MANAGER' ? (
+                          <span className="text-blue-700 font-medium">Team Mapped ({(userItem.teamRecruiterEmails || []).length} Recruiters)</span>
+                        ) : userItem.role === 'HR_RECRUITER' || userItem.role === 'HR' ? (
+                          <span className="text-emerald-700 font-medium">Self Pipeline ({userItem.email})</span>
+                        ) : userItem.role === 'FINANCE' ? (
+                          <span className="text-amber-700 font-medium">Joinings & Billing Only (PII Masked)</span>
+                        ) : (
+                          <span className="text-rose-600 font-medium">No Access (Denied)</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {/* Unlock Button if account locked */}
+                          {userItem.isLocked && canManage && (
+                            <button
+                              onClick={() => handleUnlockAccount(userItem)}
+                              disabled={actionProcessing === userItem.email}
+                              title="Unlock account and clear failed attempts"
+                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-[11px] font-semibold shadow-xs transition-colors flex items-center gap-1 cursor-pointer"
+                            >
+                              <Unlock className="w-3 h-3" />
+                              <span>Unlock</span>
+                            </button>
+                          )}
+
+                          {/* Reset Password Button */}
+                          <button
+                            onClick={() => handleOpenResetModal(userItem)}
+                            disabled={!canManage || isRootSuperAdmin}
+                            title={!canManage ? 'Admins cannot reset Super Admin or Admin accounts' : 'Set temporary password'}
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors flex items-center gap-1 border ${
+                              !canManage || isRootSuperAdmin
+                                ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                                : 'bg-white border-gray-300 hover:border-indigo-500 hover:text-indigo-700 cursor-pointer text-gray-700'
+                            }`}
+                          >
+                            <Key className="w-3 h-3" />
+                            <span>Reset Pwd</span>
+                          </button>
+
+                          {/* Toggle Active / Inactive Status */}
+                          <button
+                            onClick={() => handleToggleStatus(userItem)}
+                            disabled={!canManage || isRootSuperAdmin || actionProcessing === userItem.email}
+                            title={
+                              isRootSuperAdmin
+                                ? 'Root Super Admin cannot be deactivated'
+                                : !canManage
+                                ? 'Admins cannot modify Super Admin or Admin status'
+                                : userItem.status === 'Active'
+                                ? 'Deactivate account'
+                                : 'Activate account'
+                            }
+                            className={`px-2 py-1 rounded-md text-[11px] font-medium transition-colors border ${
+                              !canManage || isRootSuperAdmin
+                                ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                                : userItem.status === 'Active'
+                                ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 cursor-pointer'
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 cursor-pointer'
+                            }`}
+                          >
+                            <Power className="w-3 h-3" />
+                          </button>
+
+                          {/* Modify Role (Super Admin only) */}
+                          {canModifyRoles && (
+                            <button
+                              onClick={() => {
+                                setSelectedUserForEdit(userItem);
+                                setEditRole(userItem.role);
+                              }}
+                              disabled={isRootSuperAdmin}
+                              title={isRootSuperAdmin ? 'Root Super Admin role cannot be changed' : 'Change role'}
+                              className={`px-2 py-1 rounded-md text-[11px] font-medium border transition-colors ${
+                                isRootSuperAdmin
+                                  ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                                  : 'bg-white border-gray-300 hover:border-purple-500 hover:text-purple-700 text-gray-700 cursor-pointer'
+                              }`}
+                            >
+                              Role
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Reset Password Modal */}
+      {resetPasswordUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2 text-indigo-700 font-bold text-base">
+                <KeyRound className="w-5 h-5 text-indigo-600" />
+                <span>Reset User Password</span>
+              </div>
+              <button
+                onClick={() => setResetPasswordUser(null)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Target Account Info */}
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/60">
+              <div className="text-[11px] text-slate-500 font-medium">Target User Account</div>
+              <div className="text-sm font-bold text-slate-900 mt-0.5">{resetPasswordUser.name}</div>
+              <div className="text-xs text-indigo-700 font-mono">{resetPasswordUser.email}</div>
+              <div className="mt-1.5 flex items-center gap-1.5">
+                {getRoleBadge(resetPasswordUser.role)}
+              </div>
+            </div>
+
+            {/* Generated Temporary Password Box */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-700">12-Character Temporary Password</label>
+                <button
+                  type="button"
+                  onClick={generateTempPassword}
+                  className="text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Regenerate</span>
+                </button>
+              </div>
+
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  readOnly
+                  value={generatedTempPassword}
+                  className="w-full px-3.5 py-2.5 bg-indigo-50/50 border border-indigo-200 rounded-xl font-mono text-sm text-indigo-900 font-bold tracking-wide focus:outline-none select-all"
+                />
+                <button
+                  type="button"
+                  onClick={handleCopyPassword}
+                  className="absolute right-2 px-2.5 py-1.5 rounded-lg bg-white border border-indigo-200 hover:bg-indigo-50 text-indigo-700 text-xs font-semibold transition-all flex items-center gap-1 shadow-2xs"
+                >
+                  {copiedPassword ? (
+                    <>
+                      <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="text-emerald-700">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Policy Notice */}
+            <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/60 text-xs text-amber-900 leading-relaxed space-y-1">
+              <div className="font-semibold flex items-center gap-1 text-amber-950">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                <span>One-Time Temporary Key</span>
+              </div>
+              <p className="text-[11px] text-amber-800">
+                When confirmed, any account lockouts will be lifted and the user will be forced to choose their own new password upon signing in.
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setResetPasswordUser(null)}
+                className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl text-xs transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmResetPassword}
+                disabled={savingPassword}
+                className="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+              >
+                {savingPassword ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Applying...</span>
+                  </>
+                ) : (
+                  <span>Set & Enforce Reset</span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

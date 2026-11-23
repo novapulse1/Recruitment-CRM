@@ -19,7 +19,9 @@ import {
   BarChart3,
   Shield,
   CreditCard,
-  UserCog
+  UserCog,
+  KeyRound,
+  LogOut
 } from 'lucide-react';
 import type { User, UserRole } from '../types';
 import { canAccessModule } from '../services/permissions';
@@ -30,6 +32,8 @@ interface SidebarProps {
   currentUser: User;
   onSwitchUser: (email: string) => void;
   onOpenSearch: () => void;
+  onOpenChangePassword?: () => void;
+  onLogout?: () => void;
   darkMode: boolean;
   setDarkMode: (val: boolean) => void;
   counts: {
@@ -49,6 +53,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentUser,
   onSwitchUser,
   onOpenSearch,
+  onOpenChangePassword,
+  onLogout,
   darkMode,
   setDarkMode,
   counts,
@@ -56,6 +62,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setMobileOpen
 }) => {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const isDevMode = import.meta.env.VITE_DEV_MODE === 'true';
 
   const allWorkspaceNavItems = [
     {
@@ -120,9 +127,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'rbac',
-      label: 'RBAC Security',
+      label: 'RBAC & Accounts',
       icon: ShieldCheck,
-      badge: 'Super Admin',
+      badge: currentUser.role === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin',
       badgeColor: 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
     }
   ];
@@ -363,143 +370,180 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />
           </button>
 
-          {/* Account Switcher Popover (Supports All 5 Roles) */}
+          {/* Account Popover */}
           {userMenuOpen && (
             <div
-              className="absolute bottom-full left-0 mb-2 w-full rounded-2xl border border-border bg-card shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-100 max-h-80 overflow-y-auto"
-              onClick={() => setUserMenuOpen(false)}
+              className="absolute bottom-full left-0 mb-2 w-full rounded-2xl border border-border bg-card shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-100 max-h-96 overflow-y-auto"
             >
-              <div className="px-3 py-1.5 border-b border-border/60 mb-1">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  Switch Role / Persona (Test)
+              {/* User Identity Details */}
+              <div className="px-3 py-2 border-b border-border/60 mb-1.5">
+                <div className="font-bold text-xs text-foreground truncate">{currentUser.name}</div>
+                <div className="text-[10px] text-muted-foreground font-mono truncate">{currentUser.email}</div>
+                <div className="mt-1 flex items-center gap-1">
+                  {getRoleBadge(currentUser.role)}
                 </div>
               </div>
 
-              {/* 1. Super Admin */}
+              {/* Action: Change Password */}
               <button
-                onClick={() => onSwitchUser('novapulse739@gmail.com')}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition-colors ${
-                  currentUser.email === 'novapulse739@gmail.com'
-                    ? 'bg-purple-50 font-bold text-purple-700 dark:bg-purple-950/50'
-                    : 'hover:bg-muted text-foreground'
-                }`}
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  if (onOpenChangePassword) onOpenChangePassword();
+                }}
+                className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2.5 hover:bg-muted text-foreground transition-colors"
               >
-                <div>
-                  <div className="font-semibold text-xs">Novapulse Super Admin</div>
-                  <div className="text-[10px] text-muted-foreground font-mono">novapulse739@gmail.com</div>
-                </div>
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300">
-                  SUPER
-                </span>
+                <KeyRound className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="font-medium">Change Password</span>
               </button>
 
-              {/* 2. Admin */}
+              {/* Action: Sign Out */}
               <button
-                onClick={() => onSwitchUser('admin@novapulse.co.in')}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition-colors ${
-                  currentUser.email === 'admin@novapulse.co.in'
-                    ? 'bg-indigo-50 font-bold text-indigo-700 dark:bg-indigo-950/50'
-                    : 'hover:bg-muted text-foreground'
-                }`}
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  if (onLogout) onLogout();
+                }}
+                className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2.5 hover:bg-red-50 dark:hover:bg-red-950/40 text-red-600 dark:text-red-400 transition-colors"
               >
-                <div>
-                  <div className="font-semibold text-xs">Management Admin</div>
-                  <div className="text-[10px] text-muted-foreground font-mono">admin@novapulse.co.in</div>
-                </div>
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-                  ADMIN
-                </span>
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="font-semibold">Sign Out</span>
               </button>
 
-              {/* 3. Recruitment Manager */}
-              <button
-                onClick={() => onSwitchUser('manager@novapulse.co.in')}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition-colors ${
-                  currentUser.email === 'manager@novapulse.co.in'
-                    ? 'bg-blue-50 font-bold text-blue-700 dark:bg-blue-950/50'
-                    : 'hover:bg-muted text-foreground'
-                }`}
-              >
-                <div>
-                  <div className="font-semibold text-xs">Recruitment Manager</div>
-                  <div className="text-[10px] text-muted-foreground font-mono">manager@novapulse.co.in</div>
-                </div>
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                  MANAGER
-                </span>
-              </button>
+              {/* Dev Only: Switch Role / Persona (TEST) */}
+              {isDevMode && (
+                <>
+                  <div className="px-3 pt-2.5 pb-1 border-t border-border/60 mt-1 mb-1">
+                    <div className="text-[9px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                      Dev Persona Switcher
+                    </div>
+                  </div>
 
-              {/* 4. HR Recruiter - Anshu */}
-              <button
-                onClick={() => onSwitchUser('hr@novapulse.co.in')}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition-colors ${
-                  currentUser.email === 'hr@novapulse.co.in'
-                    ? 'bg-emerald-50 font-bold text-emerald-700 dark:bg-emerald-950/50'
-                    : 'hover:bg-muted text-foreground'
-                }`}
-              >
-                <div>
-                  <div className="font-semibold text-xs">Anshu (Recruiter)</div>
-                  <div className="text-[10px] text-muted-foreground font-mono">hr@novapulse.co.in</div>
-                </div>
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                  HR
-                </span>
-              </button>
+                  {/* 1. Super Admin */}
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      onSwitchUser('novapulse739@gmail.com');
+                    }}
+                    className={`w-full text-left px-3 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors ${
+                      currentUser.email === 'novapulse739@gmail.com'
+                        ? 'bg-purple-50 font-bold text-purple-700 dark:bg-purple-950/50'
+                        : 'hover:bg-muted text-foreground'
+                    }`}
+                  >
+                    <div>
+                      <div className="font-semibold text-xs">Super Admin</div>
+                      <div className="text-[10px] text-muted-foreground font-mono">novapulse739@gmail.com</div>
+                    </div>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">
+                      SUPER
+                    </span>
+                  </button>
 
-              {/* 5. HR Recruiter - Jigyasha */}
-              <button
-                onClick={() => onSwitchUser('gjigyasa11@gmail.com')}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition-colors ${
-                  currentUser.email === 'gjigyasa11@gmail.com'
-                    ? 'bg-emerald-50 font-bold text-emerald-700 dark:bg-emerald-950/50'
-                    : 'hover:bg-muted text-foreground'
-                }`}
-              >
-                <div>
-                  <div className="font-semibold text-xs">Jigyasha (Recruiter)</div>
-                  <div className="text-[10px] text-muted-foreground font-mono">gjigyasa11@gmail.com</div>
-                </div>
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                  HR
-                </span>
-              </button>
+                  {/* 2. Admin */}
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      onSwitchUser('admin@novapulse.co.in');
+                    }}
+                    className={`w-full text-left px-3 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors ${
+                      currentUser.email === 'admin@novapulse.co.in'
+                        ? 'bg-indigo-50 font-bold text-indigo-700 dark:bg-indigo-950/50'
+                        : 'hover:bg-muted text-foreground'
+                    }`}
+                  >
+                    <div>
+                      <div className="font-semibold text-xs">Admin</div>
+                      <div className="text-[10px] text-muted-foreground font-mono">admin@novapulse.co.in</div>
+                    </div>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">
+                      ADMIN
+                    </span>
+                  </button>
 
-              {/* 6. Finance */}
-              <button
-                onClick={() => onSwitchUser('finance@novapulse.co.in')}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition-colors ${
-                  currentUser.email === 'finance@novapulse.co.in'
-                    ? 'bg-amber-50 font-bold text-amber-700 dark:bg-amber-950/50'
-                    : 'hover:bg-muted text-foreground'
-                }`}
-              >
-                <div>
-                  <div className="font-semibold text-xs">Finance Executive</div>
-                  <div className="text-[10px] text-muted-foreground font-mono">finance@novapulse.co.in</div>
-                </div>
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-                  FINANCE
-                </span>
-              </button>
+                  {/* 3. Recruitment Manager */}
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      onSwitchUser('manager@novapulse.co.in');
+                    }}
+                    className={`w-full text-left px-3 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors ${
+                      currentUser.email === 'manager@novapulse.co.in'
+                        ? 'bg-blue-50 font-bold text-blue-700 dark:bg-blue-950/50'
+                        : 'hover:bg-muted text-foreground'
+                    }`}
+                  >
+                    <div>
+                      <div className="font-semibold text-xs">Manager</div>
+                      <div className="text-[10px] text-muted-foreground font-mono">manager@novapulse.co.in</div>
+                    </div>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
+                      MANAGER
+                    </span>
+                  </button>
 
-              {/* 7. Inactive Recruiter */}
-              <button
-                onClick={() => onSwitchUser('inactive.hr@novapulse.co.in')}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition-colors ${
-                  currentUser.email === 'inactive.hr@novapulse.co.in'
-                    ? 'bg-rose-50 font-bold text-rose-700 dark:bg-rose-950/50'
-                    : 'hover:bg-muted text-foreground'
-                }`}
-              >
-                <div>
-                  <div className="font-semibold text-xs">Deactivated Recruiter</div>
-                  <div className="text-[10px] text-muted-foreground font-mono">inactive.hr@...</div>
-                </div>
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300">
-                  DENIED
-                </span>
-              </button>
+                  {/* 4. HR Recruiter - Anshu */}
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      onSwitchUser('hr@novapulse.co.in');
+                    }}
+                    className={`w-full text-left px-3 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors ${
+                      currentUser.email === 'hr@novapulse.co.in'
+                        ? 'bg-emerald-50 font-bold text-emerald-700 dark:bg-emerald-950/50'
+                        : 'hover:bg-muted text-foreground'
+                    }`}
+                  >
+                    <div>
+                      <div className="font-semibold text-xs">Anshu (Recruiter)</div>
+                      <div className="text-[10px] text-muted-foreground font-mono">hr@novapulse.co.in</div>
+                    </div>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                      HR
+                    </span>
+                  </button>
+
+                  {/* 5. HR Recruiter - Jigyasha */}
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      onSwitchUser('gjigyasa11@gmail.com');
+                    }}
+                    className={`w-full text-left px-3 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors ${
+                      currentUser.email === 'gjigyasa11@gmail.com'
+                        ? 'bg-emerald-50 font-bold text-emerald-700 dark:bg-emerald-950/50'
+                        : 'hover:bg-muted text-foreground'
+                    }`}
+                  >
+                    <div>
+                      <div className="font-semibold text-xs">Jigyasha (Recruiter)</div>
+                      <div className="text-[10px] text-muted-foreground font-mono">gjigyasa11@gmail.com</div>
+                    </div>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                      HR
+                    </span>
+                  </button>
+
+                  {/* 6. Finance */}
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      onSwitchUser('finance@novapulse.co.in');
+                    }}
+                    className={`w-full text-left px-3 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors ${
+                      currentUser.email === 'finance@novapulse.co.in'
+                        ? 'bg-amber-50 font-bold text-amber-700 dark:bg-amber-950/50'
+                        : 'hover:bg-muted text-foreground'
+                    }`}
+                  >
+                    <div>
+                      <div className="font-semibold text-xs">Finance Officer</div>
+                      <div className="text-[10px] text-muted-foreground font-mono">finance@novapulse.co.in</div>
+                    </div>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+                      FINANCE
+                    </span>
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>

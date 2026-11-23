@@ -48,7 +48,8 @@ export const PERMISSIONS = {
   HR_REGISTRY_MANAGE: 'hr_registry.manage',
   AUDIT_LOGS_VIEW: 'audit_logs.view',
   SETTINGS_MANAGE: 'settings.manage',
-  RBAC_MANAGE: 'rbac.manage'
+  RBAC_MANAGE: 'rbac.manage',
+  USERS_PASSWORD_MANAGE: 'users.password_manage'
 } as const;
 
 export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
@@ -80,7 +81,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.HR_REGISTRY_MANAGE,
     PERMISSIONS.AUDIT_LOGS_VIEW,
     PERMISSIONS.SETTINGS_MANAGE,
-    PERMISSIONS.RBAC_MANAGE
+    PERMISSIONS.RBAC_MANAGE,
+    PERMISSIONS.USERS_PASSWORD_MANAGE
   ],
 
   ADMIN: [
@@ -110,7 +112,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS.REPORTS_FINANCIAL,
     PERMISSIONS.HR_REGISTRY_MANAGE,
     PERMISSIONS.AUDIT_LOGS_VIEW,
-    PERMISSIONS.SETTINGS_MANAGE
+    PERMISSIONS.SETTINGS_MANAGE,
+    PERMISSIONS.USERS_PASSWORD_MANAGE
     // NO RBAC_MANAGE for regular ADMIN
   ],
 
@@ -237,7 +240,7 @@ export function canAccessModule(user: User | null, moduleId: string): boolean {
       return can(user, PERMISSIONS.HR_REGISTRY_MANAGE) || can(user, PERMISSIONS.SETTINGS_MANAGE);
 
     case 'rbac':
-      return can(user, PERMISSIONS.RBAC_MANAGE);
+      return can(user, PERMISSIONS.RBAC_MANAGE) || can(user, PERMISSIONS.USERS_PASSWORD_MANAGE);
 
     default:
       return false;

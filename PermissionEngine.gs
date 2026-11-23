@@ -49,7 +49,8 @@ var PermissionEngine = (function () {
     HR_REGISTRY_MANAGE: 'hr_registry.manage',
     AUDIT_LOGS_VIEW: 'audit_logs.view',
     SETTINGS_MANAGE: 'settings.manage',
-    RBAC_MANAGE: 'rbac.manage'
+    RBAC_MANAGE: 'rbac.manage',
+    USERS_PASSWORD_MANAGE: 'users.password_manage'
   };
 
   // Role -> Permissions mapping
@@ -82,7 +83,8 @@ var PermissionEngine = (function () {
       PERMISSIONS.HR_REGISTRY_MANAGE,
       PERMISSIONS.AUDIT_LOGS_VIEW,
       PERMISSIONS.SETTINGS_MANAGE,
-      PERMISSIONS.RBAC_MANAGE
+      PERMISSIONS.RBAC_MANAGE,
+      PERMISSIONS.USERS_PASSWORD_MANAGE
     ],
 
     ADMIN: [
@@ -112,7 +114,8 @@ var PermissionEngine = (function () {
       PERMISSIONS.REPORTS_FINANCIAL,
       PERMISSIONS.HR_REGISTRY_MANAGE,
       PERMISSIONS.AUDIT_LOGS_VIEW,
-      PERMISSIONS.SETTINGS_MANAGE
+      PERMISSIONS.SETTINGS_MANAGE,
+      PERMISSIONS.USERS_PASSWORD_MANAGE
       // NOTE: ADMIN does NOT have PERMISSIONS.RBAC_MANAGE
     ],
 

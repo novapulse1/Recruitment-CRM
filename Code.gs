@@ -14,6 +14,15 @@ function doGet(e) {
       return jsonResponse({ status: 'ok', service: 'NovaPulse CRM API', timestamp: new Date().toISOString() });
     }
 
+    if (action === 'verifySession') {
+      var session = AuthService.verifySessionToken(params.token);
+      if (!session) {
+        return jsonResponse({ success: false, error: 'Session expired or invalid' }, 401);
+      }
+      var sessUser = AuthService.resolveUser(session.email);
+      return jsonResponse({ success: true, user: sessUser });
+    }
+
     // Resolve user server-side
     var userEmail = params.userEmail || (Session.getActiveUser() ? Session.getActiveUser().getEmail() : '');
     var user = AuthService.resolveUser(userEmail);
@@ -138,6 +147,13 @@ function doPost(e) {
     }
 
     var action = (e && e.parameter && e.parameter.action) || body.action;
+
+    // Public / Pre-auth action: login
+    if (action === 'login') {
+      var loginResult = AuthService.login(body.identifier || body.username || body.email, body.password, body.rememberMe);
+      return jsonResponse(loginResult, loginResult.success ? 200 : 401);
+    }
+
     var userEmail = (e && e.parameter && e.parameter.userEmail) || body.userEmail || (Session.getActiveUser() ? Session.getActiveUser().getEmail() : '');
 
     var user = AuthService.resolveUser(userEmail);
@@ -148,6 +164,22 @@ function doPost(e) {
     var result = {};
 
     switch (action) {
+      case 'changePassword':
+        result = AuthService.changePassword(user, body.oldPassword, body.newPassword);
+        break;
+
+      case 'adminResetPassword':
+        result = AuthService.adminResetPassword(user, body.targetEmail, body.temporaryPassword);
+        break;
+
+      case 'adminUnlockAccount':
+        result = AuthService.adminUnlockAccount(user, body.targetEmail);
+        break;
+
+      case 'adminToggleUserStatus':
+        result = AuthService.adminToggleUserStatus(user, body.targetEmail, body.newStatus);
+        break;
+
       case 'createCandidate':
         result = CandidateService.createCandidate(user, body.candidateData || body, body.allowDuplicateOverride || false);
         break;

@@ -167,7 +167,10 @@ var AdminService = (function () {
   // ================= RBAC MANAGEMENT (SUPER_ADMIN ONLY) =================
 
   function getRBACOverview(user) {
-    PermissionEngine.assertPermission(user, PermissionEngine.PERMISSIONS.RBAC_MANAGE);
+    if (!PermissionEngine.hasPermission(user, PermissionEngine.PERMISSIONS.RBAC_MANAGE) &&
+        !PermissionEngine.hasPermission(user, PermissionEngine.PERMISSIONS.USERS_PASSWORD_MANAGE)) {
+      throw new Error('Forbidden: RBAC or User Management permission required.');
+    }
 
     var config = AuthService.getConfigurationMap();
     var superAdmins = AuthService.getSuperAdminEmails();
@@ -177,41 +180,77 @@ var AdminService = (function () {
     var teamMapping = AuthService.getManagerTeamMapping();
     var hrRegistry = SheetRepo.readTable('HR REGISTRY');
 
-    // Aggregate unique user records
-    var usersMap = {};
-
-    function addUser(email, role, name, status) {
-      var clean = String(email).trim().toLowerCase();
-      if (!clean) return;
-      if (!usersMap[clean]) {
-        usersMap[clean] = {
-          email: clean,
-          name: name || clean.split('@')[0],
-          role: role,
-          status: status || 'Active',
-          teamRecruiterEmails: teamMapping[clean] || []
-        };
-      }
-    }
-
-    superAdmins.forEach(function (e) { addUser(e, 'SUPER_ADMIN', 'Super Admin'); });
-    admins.forEach(function (e) { addUser(e, 'ADMIN', 'Management Admin'); });
-    managers.forEach(function (e) { addUser(e, 'RECRUITMENT_MANAGER', 'Recruitment Manager'); });
-    finance.forEach(function (e) { addUser(e, 'FINANCE', 'Finance Executive'); });
-
-    hrRegistry.forEach(function (hr) {
-      var email = (hr['HR Email'] || '').trim().toLowerCase();
-      var active = (hr['Active Status'] || '').toLowerCase() === 'active' ? 'Active' : 'Inactive';
-      if (!usersMap[email]) {
-        addUser(email, 'HR_RECRUITER', hr['HR Name'], active);
-      } else {
-        usersMap[email].name = hr['HR Name'] || usersMap[email].name;
-      }
-    });
-
+    // Read from USERS table as primary source of truth
+    var userRows = SheetRepo.readTable('USERS');
     var userList = [];
-    for (var k in usersMap) {
-      userList.push(usersMap[k]);
+    var nowMs = Date.now();
+
+    if (userRows && userRows.length > 0) {
+      for (var u = 0; u < userRows.length; u++) {
+        var r = userRows[u];
+        var em = String(r['email'] || '').trim().toLowerCase();
+        var lockUntil = r['locked_until'] || '';
+        var isLocked = false;
+        if (lockUntil) {
+          isLocked = (new Date(lockUntil).getTime() > nowMs);
+        }
+
+        userList.push({
+          user_id: r['user_id'] || '',
+          email: em,
+          name: r['name'] || r['user_id'] || em.split('@')[0],
+          role: r['role'] || 'DENIED',
+          status: r['status'] || 'Active',
+          must_change_password: String(r['must_change_password']).toUpperCase() === 'TRUE',
+          failed_attempts: parseInt(r['failed_attempts'], 10) || 0,
+          locked_until: lockUntil,
+          isLocked: isLocked,
+          last_login: r['last_login'] || '',
+          password_updated_at: r['password_updated_at'] || '',
+          password_updated_by: r['password_updated_by'] || '',
+          teamRecruiterEmails: teamMapping[em] || []
+        });
+      }
+    } else {
+      // Fallback: Aggregate from CONFIGURATION and HR REGISTRY
+      var usersMap = {};
+      function addUser(email, role, name, status) {
+        var clean = String(email).trim().toLowerCase();
+        if (!clean) return;
+        if (!usersMap[clean]) {
+          usersMap[clean] = {
+            user_id: clean.split('@')[0],
+            email: clean,
+            name: name || clean.split('@')[0],
+            role: role,
+            status: status || 'Active',
+            must_change_password: false,
+            failed_attempts: 0,
+            locked_until: '',
+            isLocked: false,
+            teamRecruiterEmails: teamMapping[clean] || []
+          };
+        }
+      }
+
+      superAdmins.forEach(function (e) { addUser(e, 'SUPER_ADMIN', 'Super Admin'); });
+      admins.forEach(function (e) { addUser(e, 'ADMIN', 'Management Admin'); });
+      managers.forEach(function (e) { addUser(e, 'RECRUITMENT_MANAGER', 'Recruitment Manager'); });
+      finance.forEach(function (e) { addUser(e, 'FINANCE', 'Finance Executive'); });
+
+      hrRegistry.forEach(function (hr) {
+        var email = (hr['HR Email'] || '').trim().toLowerCase();
+        var active = (hr['Active Status'] || '').toLowerCase() === 'active' ? 'Active' : 'Inactive';
+        if (!usersMap[email]) {
+          addUser(email, 'HR_RECRUITER', hr['HR Name'], active);
+        } else {
+          usersMap[email].name = hr['HR Name'] || usersMap[email].name;
+        }
+      });
+
+      for (var k in usersMap) {
+        userList.push(usersMap[k]);
+      }
     }
 
     return {
@@ -256,6 +295,12 @@ var AdminService = (function () {
     AuthService.setConfigurationKey('MANAGEMENT_EMAILS', admins.join(', '));
     AuthService.setConfigurationKey('RECRUITMENT_MANAGER_EMAILS', managers.join(', '));
     AuthService.setConfigurationKey('FINANCE_EMAILS', finance.join(', '));
+
+    try {
+      SheetRepo.updateRow('USERS', 'email', cleanEmail, { 'role': newRole });
+    } catch (ue) {
+      // ignore if user not in USERS sheet yet
+    }
 
     AuditService.logAction('RBAC', cleanEmail, 'CHANGE_USER_ROLE', user, 'New Role: ' + newRole);
 
