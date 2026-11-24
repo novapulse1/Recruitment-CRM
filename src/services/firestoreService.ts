@@ -19,9 +19,12 @@ import {
   where,
   orderBy,
   limit,
-  serverTimestamp
+  serverTimestamp,
+  writeBatch,
+  runTransaction
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { MASTER_MIGRATION_DATA } from '../data/masterMigrationData';
 import type {
   Candidate,
   Client,
@@ -79,7 +82,36 @@ export async function getCandidatesFromFirestore(user: User): Promise<Candidate[
 
 export async function addCandidateToFirestore(candidate: Partial<Candidate>, user: User): Promise<Candidate> {
   const firestore = requireDb();
-  const candidateId = candidate['Candidate ID'] || `NP-CAN-${String(Date.now()).slice(-6)}`;
+  let candidateId = candidate['Candidate ID'];
+
+  if (!candidateId) {
+    try {
+      const counterRef = doc(firestore, 'config', 'counters');
+      candidateId = await runTransaction(firestore, async (transaction) => {
+        const counterSnap = await transaction.get(counterRef);
+        let nextNum = 1159;
+        if (counterSnap.exists() && counterSnap.data()?.lastCandidateNum) {
+          nextNum = Number(counterSnap.data().lastCandidateNum) + 1;
+        }
+        const formattedId = `NP-CAN-${String(nextNum).padStart(6, '0')}`;
+        transaction.set(
+          counterRef,
+          {
+            lastCandidateNum: nextNum,
+            nextCandidateId: `NP-CAN-${String(nextNum + 1).padStart(6, '0')}`,
+            updatedAt: serverTimestamp(),
+            updatedBy: user.email
+          },
+          { merge: true }
+        );
+        return formattedId;
+      });
+    } catch (err) {
+      console.warn('Failed to atomically increment candidate counter, using sequential fallback:', err);
+      candidateId = `NP-CAN-${String(Date.now()).slice(-6)}`;
+    }
+  }
+
   const nowStr = new Date().toLocaleString('en-GB');
 
   const newCandidate: Candidate = {
@@ -708,7 +740,7 @@ export async function getRBACOverviewFromFirestore(user: User): Promise<RBACOver
   };
 }
 
-// ==================== ONE-TIME LOCAL DATA MIGRATION ====================
+// ==================== ONE-TIME MASTER DATA MIGRATION ====================
 
 export async function importLocalDataToFirestore(user: User): Promise<{
   success: boolean;
@@ -716,20 +748,19 @@ export async function importLocalDataToFirestore(user: User): Promise<{
   message: string;
 }> {
   const firestore = requireDb();
-  const rawData = localStorage.getItem('novapulse_local_db');
-  if (!rawData) {
-    return {
-      success: false,
-      imported: {},
-      message: 'No legacy local database (novapulse_local_db) found on this browser.'
-    };
-  }
 
-  let localStore: any;
-  try {
-    localStore = JSON.parse(rawData);
-  } catch (err: any) {
-    throw new Error('Failed to parse local database: ' + err.message);
+  // Load master dataset from Google Sheets export
+  const master = MASTER_MIGRATION_DATA;
+
+  // Check if there is also any legacy local db to merge
+  let localStore: any = null;
+  const rawData = localStorage.getItem('novapulse_local_db');
+  if (rawData) {
+    try {
+      localStore = JSON.parse(rawData);
+    } catch (e) {
+      console.warn('Could not parse localStore:', e);
+    }
   }
 
   const counts: Record<string, number> = {
@@ -744,126 +775,259 @@ export async function importLocalDataToFirestore(user: User): Promise<{
     dropdowns: 0
   };
 
-  // 1. Import Candidates
-  if (Array.isArray(localStore.candidates)) {
+  // Helper for batch commits (Firestore allows up to 500 writes per batch)
+  const commitInChunks = async <T>(
+    items: T[],
+    getDocRefAndData: (item: T) => { ref: any; data: any } | null,
+    chunkSize = 300
+  ): Promise<number> => {
+    let written = 0;
+    for (let i = 0; i < items.length; i += chunkSize) {
+      const chunk = items.slice(i, i + chunkSize);
+      const batch = writeBatch(firestore);
+      let batchCount = 0;
+      for (const item of chunk) {
+        const pair = getDocRefAndData(item);
+        if (pair && pair.ref) {
+          batch.set(pair.ref, pair.data, { merge: true });
+          batchCount++;
+        }
+      }
+      if (batchCount > 0) {
+        await batch.commit();
+        written += batchCount;
+      }
+    }
+    return written;
+  };
+
+  // 1. Candidates (1,057 records from master dataset + local merges)
+  const candidateMap = new Map<string, any>();
+  if (Array.isArray(master.candidates)) {
+    for (const c of master.candidates) {
+      if (c && c['Candidate ID']) {
+        candidateMap.set(c['Candidate ID'], { ...c });
+      }
+    }
+  }
+  if (localStore && Array.isArray(localStore.candidates)) {
     for (const c of localStore.candidates) {
-      const docId = c['Candidate ID'] || undefined;
-      if (docId) {
-        await setDoc(doc(firestore, 'candidates', docId), c, { merge: true });
-      } else {
-        await addDoc(collection(firestore, 'candidates'), c);
+      if (c && c['Candidate ID']) {
+        const existing = candidateMap.get(c['Candidate ID']) || {};
+        candidateMap.set(c['Candidate ID'], { ...existing, ...c });
       }
-      counts.candidates++;
     }
   }
+  const candidateList = Array.from(candidateMap.values());
+  counts.candidates = await commitInChunks(
+    candidateList,
+    (c) => ({
+      ref: doc(firestore, 'candidates', c['Candidate ID']),
+      data: c
+    })
+  );
 
-  // 2. Import Openings
-  if (Array.isArray(localStore.openings)) {
+  // 2. Openings (15 records from master dataset + local merges)
+  const openingMap = new Map<string, any>();
+  if (Array.isArray(master.openings)) {
+    for (const o of master.openings) {
+      if (o && o['Opening ID']) {
+        openingMap.set(o['Opening ID'], { ...o });
+      }
+    }
+  }
+  if (localStore && Array.isArray(localStore.openings)) {
     for (const o of localStore.openings) {
-      const docId = o['Opening ID'] || undefined;
-      if (docId) {
-        await setDoc(doc(firestore, 'openings', docId), o, { merge: true });
-      } else {
-        await addDoc(collection(firestore, 'openings'), o);
+      if (o && o['Opening ID']) {
+        const existing = openingMap.get(o['Opening ID']) || {};
+        openingMap.set(o['Opening ID'], { ...existing, ...o });
       }
-      counts.openings++;
     }
   }
+  const openingList = Array.from(openingMap.values());
+  counts.openings = await commitInChunks(
+    openingList,
+    (o) => ({
+      ref: doc(firestore, 'openings', o['Opening ID']),
+      data: o
+    })
+  );
 
-  // 3. Import Clients
-  if (Array.isArray(localStore.clients)) {
+  // 3. Clients (21 records from master dataset + local merges)
+  const clientMap = new Map<string, any>();
+  if (Array.isArray(master.clients)) {
+    for (const cl of master.clients) {
+      if (cl && cl.clientId) {
+        clientMap.set(cl.clientId, { ...cl });
+      }
+    }
+  }
+  if (localStore && Array.isArray(localStore.clients)) {
     for (const cl of localStore.clients) {
-      const docId = cl.clientId || undefined;
-      if (docId) {
-        await setDoc(doc(firestore, 'clients', docId), cl, { merge: true });
-      } else {
-        await addDoc(collection(firestore, 'clients'), cl);
+      if (cl && cl.clientId) {
+        const existing = clientMap.get(cl.clientId) || {};
+        clientMap.set(cl.clientId, { ...existing, ...cl });
       }
-      counts.clients++;
     }
   }
+  const clientList = Array.from(clientMap.values());
+  counts.clients = await commitInChunks(
+    clientList,
+    (cl) => ({
+      ref: doc(firestore, 'clients', cl.clientId),
+      data: cl
+    })
+  );
 
-  // 4. Import Joinings
-  if (Array.isArray(localStore.joinings)) {
+  // 4. Joinings (13 records from master dataset + local merges)
+  const joiningMap = new Map<string, any>();
+  if (Array.isArray(master.joinings)) {
+    for (const j of master.joinings) {
+      if (j && j.candidateId) {
+        joiningMap.set(j.candidateId, { ...j });
+      }
+    }
+  }
+  if (localStore && Array.isArray(localStore.joinings)) {
     for (const j of localStore.joinings) {
-      const docId = j.candidateId || undefined;
-      if (docId) {
-        await setDoc(doc(firestore, 'joinings', docId), j, { merge: true });
-      } else {
-        await addDoc(collection(firestore, 'joinings'), j);
+      if (j && j.candidateId) {
+        const existing = joiningMap.get(j.candidateId) || {};
+        joiningMap.set(j.candidateId, { ...existing, ...j });
       }
-      counts.joinings++;
     }
   }
+  const joiningList = Array.from(joiningMap.values());
+  counts.joinings = await commitInChunks(
+    joiningList,
+    (j) => ({
+      ref: doc(firestore, 'joinings', j.candidateId),
+      data: j
+    })
+  );
 
-  // 5. Import Interviews
-  if (Array.isArray(localStore.interviews)) {
+  // 5. Interviews (99 records from master dataset + local merges)
+  const interviewMap = new Map<string, any>();
+  if (Array.isArray(master.interviews)) {
+    for (const i of master.interviews) {
+      if (i && i.interviewId) {
+        interviewMap.set(i.interviewId, { ...i });
+      }
+    }
+  }
+  if (localStore && Array.isArray(localStore.interviews)) {
     for (const i of localStore.interviews) {
-      const docId = i.interviewId || undefined;
-      if (docId) {
-        await setDoc(doc(firestore, 'interviews', docId), i, { merge: true });
-      } else {
-        await addDoc(collection(firestore, 'interviews'), i);
+      if (i && i.interviewId) {
+        const existing = interviewMap.get(i.interviewId) || {};
+        interviewMap.set(i.interviewId, { ...existing, ...i });
       }
-      counts.interviews++;
     }
   }
+  const interviewList = Array.from(interviewMap.values());
+  counts.interviews = await commitInChunks(
+    interviewList,
+    (i) => ({
+      ref: doc(firestore, 'interviews', i.interviewId),
+      data: i
+    })
+  );
 
-  // 6. Import Leads
-  if (Array.isArray(localStore.leads)) {
+  // 6. Leads (2 records from master dataset + local merges)
+  const leadMap = new Map<string, any>();
+  if (Array.isArray(master.leads)) {
+    for (const l of master.leads) {
+      if (l && l['Lead ID']) {
+        leadMap.set(l['Lead ID'], { ...l });
+      }
+    }
+  }
+  if (localStore && Array.isArray(localStore.leads)) {
     for (const l of localStore.leads) {
-      const docId = l['Lead ID'] || undefined;
-      if (docId) {
-        await setDoc(doc(firestore, 'leads', docId), l, { merge: true });
-      } else {
-        await addDoc(collection(firestore, 'leads'), l);
+      if (l && l['Lead ID']) {
+        const existing = leadMap.get(l['Lead ID']) || {};
+        leadMap.set(l['Lead ID'], { ...existing, ...l });
       }
-      counts.leads++;
     }
   }
+  const leadList = Array.from(leadMap.values());
+  counts.leads = await commitInChunks(
+    leadList,
+    (l) => ({
+      ref: doc(firestore, 'leads', l['Lead ID']),
+      data: l
+    })
+  );
 
-  // 7. Import HRs
-  if (Array.isArray(localStore.hrs)) {
+  // 7. HRs (2 records from master dataset + local merges)
+  const hrMap = new Map<string, any>();
+  if (Array.isArray(master.hrs)) {
+    for (const h of master.hrs) {
+      const docId = (h as any)['HR ID'] || (h as any).hrId;
+      if (docId) {
+        hrMap.set(docId, { ...h });
+      }
+    }
+  }
+  if (localStore && Array.isArray(localStore.hrs)) {
     for (const h of localStore.hrs) {
-      const docId = h.hrId || h.email || undefined;
+      const docId = h['HR ID'] || h.hrId || h.email;
       if (docId) {
-        await setDoc(doc(firestore, 'hrs', docId), h, { merge: true });
-      } else {
-        await addDoc(collection(firestore, 'hrs'), h);
+        const existing = hrMap.get(docId) || {};
+        hrMap.set(docId, { ...existing, ...h });
       }
-      counts.hrs++;
     }
   }
+  const hrList = Array.from(hrMap.values());
+  counts.hrs = await commitInChunks(
+    hrList,
+    (h: any) => ({
+      ref: doc(firestore, 'hrs', h['HR ID'] || h.hrId),
+      data: h
+    })
+  );
 
-  // 8. Import Users (IMPORTANT: Explicitly skip password_hash and salt)
-  if (Array.isArray(localStore.users)) {
+  // 8. Users (Skip password_hash and salt completely)
+  if (localStore && Array.isArray(localStore.users)) {
     for (const u of localStore.users) {
       const { password_hash, salt, ...safeUser } = u;
       const docId = safeUser.email || safeUser.user_id;
       if (docId) {
-        await setDoc(doc(firestore, 'users', docId), {
-          ...safeUser,
-          importedAt: new Date().toISOString(),
-          importedBy: user.email
-        }, { merge: true });
+        await setDoc(
+          doc(firestore, 'users', docId),
+          {
+            ...safeUser,
+            importedAt: new Date().toISOString(),
+            importedBy: user.email
+          },
+          { merge: true }
+        );
         counts.users++;
       }
     }
   }
 
-  // 9. Import Dropdowns
-  if (localStore.dropdowns) {
-    await setDoc(doc(firestore, 'dropdowns', 'categories'), localStore.dropdowns, { merge: true });
-    counts.dropdowns = Object.keys(localStore.dropdowns).length;
-  }
+  // 9. Dropdowns
+  const defaultDropdowns = await getDropdownsFromFirestore();
+  counts.dropdowns = Object.keys(defaultDropdowns).length;
 
-  // Log successful migration audit
+  // 10. Update ID Counters document (Highest candidate: 1158, next candidate: 1159)
+  await setDoc(
+    doc(firestore, 'config', 'counters'),
+    {
+      lastCandidateNum: 1158,
+      nextCandidateId: 'NP-CAN-001159',
+      updatedAt: serverTimestamp(),
+      updatedBy: user.email
+    },
+    { merge: true }
+  );
+
+  // 11. Log audit entry
   await logAuditEntry({
     Timestamp: new Date().toLocaleString('en-GB'),
     'Candidate ID': 'SYSTEM',
-    'Candidate Name': 'Local Database Migration',
-    'Previous Value': 'localStorage (novapulse_local_db)',
-    'New Value': 'Cloud Firestore',
+    'Candidate Name': 'Master Database Migration',
+    'Previous Value': 'Initial state',
+    'New Value': `Imported ${counts.candidates} candidates, ${counts.clients} clients, ${counts.openings} openings, ${counts.joinings} joinings, ${counts.interviews} interviews, ${counts.leads} leads`,
     Action: 'DATA_IMPORT_COMPLETED',
     'Updated By': user.email,
     'HR Name': user.name,
@@ -877,6 +1041,6 @@ export async function importLocalDataToFirestore(user: User): Promise<{
   return {
     success: true,
     imported: counts,
-    message: `Successfully migrated all records to Cloud Firestore: ${counts.candidates} candidates, ${counts.openings} openings, ${counts.clients} clients, ${counts.joinings} joinings, ${counts.hrs} HR records, ${counts.users} user profiles. Old local database removed.`
+    message: `Master dataset successfully synchronized with Cloud Firestore! Migrated ${counts.candidates} candidates (NP-CAN-000043 to NP-CAN-001158), ${counts.clients} clients, ${counts.openings} openings, ${counts.joinings} joinings, ${counts.interviews} interviews, ${counts.leads} leads. Counter initialized: next Candidate ID is NP-CAN-001159.`
   };
 }

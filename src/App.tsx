@@ -269,17 +269,21 @@ export const App: React.FC = () => {
         {/* View Content Body */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 scrollbar-thin">
           <div className="max-w-7xl mx-auto w-full">
-            {/* Legacy Local Data Detected Banner */}
-            {hasLegacyLocalData && (
+            {/* Master / Local Data Migration Banner */}
+            {(hasLegacyLocalData || (candidates.length < 50 && (currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN'))) && (
               <div className="mb-6 p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-indigo-600/20">
                     <Database className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">Legacy Local Data Detected</h4>
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                      {candidates.length < 50 ? 'Master Recruitment Database Migration' : 'Legacy Local Data Detected'}
+                    </h4>
                     <p className="text-xs text-slate-600 dark:text-slate-400">
-                      Local records found in this browser (`novapulse_local_db`). Migrate them to Cloud Firestore for permanent cross-device synchronization.
+                      {candidates.length < 50
+                        ? '1,057 historical candidates, 21 clients, 15 openings, 13 joinings, and 99 interviews ready to synchronize into Cloud Firestore.'
+                        : 'Local records found in this browser (`novapulse_local_db`). Migrate them to Cloud Firestore for permanent cross-device synchronization.'}
                     </p>
                   </div>
                 </div>

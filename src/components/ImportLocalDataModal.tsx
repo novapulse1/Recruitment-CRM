@@ -44,8 +44,8 @@ export const ImportLocalDataModal: React.FC<ImportLocalDataModalProps> = ({ isOp
               <Database className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-foreground">Import Local Data to Firestore</h3>
-              <p className="text-xs text-muted-foreground">Migrate legacy browser data (`novapulse_local_db`)</p>
+              <h3 className="text-base font-bold text-foreground">Import Master Database to Firestore</h3>
+              <p className="text-xs text-muted-foreground">Synchronize all 1,057 candidates & records into Cloud Firestore</p>
             </div>
           </div>
           <button
@@ -59,17 +59,19 @@ export const ImportLocalDataModal: React.FC<ImportLocalDataModalProps> = ({ isOp
         {!result ? (
           <div className="space-y-4">
             <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-              This one-time utility will read all records stored in your browser's local mock database and upload them into Cloud Firestore under your authenticated user session.
+              This utility migrates all historical records from the central recruitment database directly into Cloud Firestore under your authenticated session.
             </p>
 
             <div className="p-3.5 rounded-xl bg-muted/50 border border-border text-xs space-y-1.5 text-foreground">
               <div className="font-semibold text-foreground">What will be migrated:</div>
               <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                <li>Candidates, Openings & Clients</li>
-                <li>Interview Logs & Scheduled Follow-ups</li>
-                <li>Joining Tracker & Commercial Details</li>
-                <li>Custom Dropdown Options & HR Registry</li>
-                <li>User accounts (<strong>passwords & hashes are completely skipped</strong>)</li>
+                <li><strong>1,057 Candidates</strong> (NP-CAN-000043 to NP-CAN-001158)</li>
+                <li><strong>21 Clients</strong> &amp; <strong>15 Openings</strong></li>
+                <li><strong>13 Joinings</strong> &amp; <strong>99 Interview Logs</strong></li>
+                <li><strong>2 Leads</strong> &amp; HR Registry mappings</li>
+                <li><strong>Candidate Counter Sync</strong>: Next candidate ID initialized to NP-CAN-001159</li>
+                <li><strong>Idempotent</strong>: Document IDs are preserved, re-running never creates duplicates</li>
+                <li><strong>Security</strong>: Old password hashes and secrets are completely excluded</li>
               </ul>
             </div>
 
@@ -111,22 +113,37 @@ export const ImportLocalDataModal: React.FC<ImportLocalDataModalProps> = ({ isOp
             </div>
 
             <div className="grid grid-cols-3 gap-2 text-center text-xs p-3 rounded-xl bg-muted/40 border border-border">
-              <div>
+              <div className="p-2 rounded-lg bg-card border border-border">
                 <span className="block font-bold text-foreground text-sm">{result.imported.candidates || 0}</span>
                 <span className="text-muted-foreground text-[10px]">Candidates</span>
               </div>
-              <div>
+              <div className="p-2 rounded-lg bg-card border border-border">
+                <span className="block font-bold text-foreground text-sm">{result.imported.clients || 0}</span>
+                <span className="text-muted-foreground text-[10px]">Clients</span>
+              </div>
+              <div className="p-2 rounded-lg bg-card border border-border">
                 <span className="block font-bold text-foreground text-sm">{result.imported.openings || 0}</span>
                 <span className="text-muted-foreground text-[10px]">Openings</span>
               </div>
-              <div>
-                <span className="block font-bold text-foreground text-sm">{result.imported.clients || 0}</span>
-                <span className="text-muted-foreground text-[10px]">Clients</span>
+              <div className="p-2 rounded-lg bg-card border border-border">
+                <span className="block font-bold text-foreground text-sm">{result.imported.joinings || 0}</span>
+                <span className="text-muted-foreground text-[10px]">Joinings</span>
+              </div>
+              <div className="p-2 rounded-lg bg-card border border-border">
+                <span className="block font-bold text-foreground text-sm">{result.imported.interviews || 0}</span>
+                <span className="text-muted-foreground text-[10px]">Interviews</span>
+              </div>
+              <div className="p-2 rounded-lg bg-card border border-border">
+                <span className="block font-bold text-foreground text-sm">{result.imported.leads || 0}</span>
+                <span className="text-muted-foreground text-[10px]">Leads</span>
               </div>
             </div>
 
             <button
-              onClick={onClose}
+              onClick={() => {
+                onClose();
+                window.location.reload();
+              }}
               className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all shadow-sm"
             >
               Done & Refresh Data
