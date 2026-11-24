@@ -146,9 +146,21 @@ async function syncAndPush(commitMessage = 'chore: sync and update recruitment c
 
   // 7. Push
   console.log('Pushing to GitHub main branch...');
+  const customHttp = {
+    request: (req) => {
+      return http.request({
+        ...req,
+        fetchOptions: {
+          ...(req.fetchOptions || {}),
+          timeout: 300000 // 5 minutes timeout for large datasets
+        }
+      });
+    }
+  };
+
   const pushRes = await git.push({
     fs,
-    http,
+    http: customHttp,
     dir: REPO_DIR,
     remote: 'origin',
     ref: 'main',
