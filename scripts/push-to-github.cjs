@@ -123,26 +123,23 @@ async function syncAndPush(commitMessage = 'chore: sync and update recruitment c
     }
   }
 
-  if (changesCount === 0) {
-    console.log('No new changes to commit. Repository is clean and up-to-date.');
-    return;
+  if (changesCount > 0) {
+    console.log(`Staged ${changesCount} changed/new files.`);
+    const msg = process.argv[2] || commitMessage;
+    console.log(`Committing with message: "${msg}"...`);
+    const commitSha = await git.commit({
+      fs,
+      dir: REPO_DIR,
+      message: msg,
+      author: {
+        name: 'NovaPulse Team',
+        email: 'novapulse739@gmail.com'
+      }
+    });
+    console.log(`Committed: ${commitSha}`);
+  } else {
+    console.log('Working tree clean, checking for unpushed commits...');
   }
-
-  console.log(`Staged ${changesCount} changed/new files.`);
-
-  // 6. Commit
-  const msg = process.argv[2] || commitMessage;
-  console.log(`Committing with message: "${msg}"...`);
-  const commitSha = await git.commit({
-    fs,
-    dir: REPO_DIR,
-    message: msg,
-    author: {
-      name: 'NovaPulse Team',
-      email: 'novapulse739@gmail.com'
-    }
-  });
-  console.log(`Committed: ${commitSha}`);
 
   // 7. Push
   console.log('Pushing to GitHub main branch...');
