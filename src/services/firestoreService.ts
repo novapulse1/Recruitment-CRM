@@ -628,21 +628,60 @@ export async function computeDashboardFromFirestore(user: User): Promise<Dashboa
   const receivedRevenue = joinings.filter((j) => j?.invoiceStatus === 'Paid').reduce((sum, j) => sum + (Number(j?.invoiceAmount) || 0), 0);
   const activeGuarantees = joinings.filter((j) => (j?.replacementRemainingDays || 0) > 0).length;
 
-  // Drop Reasons Breakdown
+  // Drop Reasons Breakdown (Strictly true negative drop/rejection sub-dispositions)
+  const POSITIVE_STATUSES = new Set([
+    'interview schedule',
+    'interview scheduled',
+    'interview attended',
+    'interested',
+    'call back',
+    'callback',
+    'connected',
+    'shortlisted',
+    'selected',
+    'joined',
+    'none',
+    '-'
+  ]);
+
   const dropReasonsMap: Record<string, number> = {};
   candidates.forEach((c) => {
     if (!c) return;
+    const stage = c['Pipeline Stage'] || '';
     const disp = c['Calling Disposition'] || '';
     const status = c['Interview Status'] || '';
-    const subDisp = c['Sub-Disposition'] || '';
-    if (
+    const subDisp = (c['Sub-Disposition'] || '').trim();
+
+    const isDropStage =
+      stage === 'Rejected' ||
+      stage === 'Dropped / Not Joined' ||
+      stage === 'Not Interested / Closed' ||
+      stage === 'Interview No Show';
+
+    const isDropDisp =
       disp === 'Not Interested' ||
-      disp === 'Not Connected' ||
+      disp === 'Not Reachable' ||
       status === 'Drop After Lineup' ||
       c['Selection Status'] === 'Rejected' ||
-      c['Joining Status'] === 'Dropped'
-    ) {
-      const reason = subDisp || disp || status || 'Other';
+      c['Joining Status'] === 'Dropped';
+
+    if (isDropStage || isDropDisp) {
+      let reason = 'Other';
+      if (subDisp && !POSITIVE_STATUSES.has(subDisp.toLowerCase())) {
+        reason = subDisp;
+      } else if (stage === 'Interview No Show' || status === 'No Show') {
+        reason = 'Interview No Show';
+      } else if (status === 'Drop After Lineup') {
+        reason = 'Drop After Lineup';
+      } else if (c['Selection Status'] === 'Rejected') {
+        reason = 'Rejected by Client';
+      } else if (disp === 'Not Reachable') {
+        reason = 'Not Reachable';
+      } else if (disp === 'Not Interested') {
+        reason = 'Not Interested';
+      } else if (stage === 'Dropped / Not Joined') {
+        reason = 'Dropped Before Joining';
+      }
       dropReasonsMap[reason] = (dropReasonsMap[reason] || 0) + 1;
     }
   });

@@ -34,6 +34,7 @@ import {
   Legend
 } from 'recharts';
 import type { DashboardMetrics, Candidate, InterviewItem, JoiningRecord, Client, User } from '../types';
+import { formatINR, parseCurrency } from '../utils/formatters';
 
 interface DashboardViewProps {
   metrics: DashboardMetrics | null;
@@ -60,6 +61,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const safeInterviews = interviews || [];
   const safeJoinings = joinings || [];
   const safeClients = clients || [];
+
+  const isAdmin = currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN';
 
   const [selectedMonth, setSelectedMonth] = useState('Nov-2026');
   const [filterHR, setFilterHR] = useState('');
@@ -126,13 +129,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Commercial Revenue Pipeline Projections
   const commercialHealth = useMemo(() => {
-    const totalInvoiced = safeJoinings.reduce((acc, j) => acc + (Number(j?.invoiceAmount) || 0), 0);
-    const paidRevenue = safeJoinings.filter((j) => j?.invoiceStatus === 'Paid').reduce((acc, j) => acc + (Number(j?.invoiceAmount) || 0), 0);
-    const pendingDue = safeJoinings.filter((j) => j?.invoiceStatus !== 'Paid').reduce((acc, j) => acc + (Number(j?.invoiceAmount) || 0), 0);
+    const totalInvoiced = safeJoinings.reduce((acc, j) => acc + (parseCurrency(j?.invoiceAmount || j?.feeValue) || 0), 0);
+    const paidRevenue = safeJoinings.filter((j) => j?.invoiceStatus === 'Paid').reduce((acc, j) => acc + (parseCurrency(j?.invoiceAmount || j?.feeValue) || 0), 0);
+    const pendingDue = safeJoinings.filter((j) => j?.invoiceStatus !== 'Paid').reduce((acc, j) => acc + (parseCurrency(j?.invoiceAmount || j?.feeValue) || 0), 0);
 
     // Projected revenue from candidates who are currently Selected but not yet in Joining Tracker
     const selectedCandidates = filteredCandidates.filter(
-      (c) => c && c['Selection Status'] === 'Selected' && c['Joining Status'] !== 'Joined'
+      (c) => c && (c['Selection Status'] === 'Selected' || c['Pipeline Stage'] === 'Selected – Joining Pending') && c['Joining Status'] !== 'Joined'
     );
     const projectedSelected = selectedCandidates.length * 25000; // estimated avg fee
 
@@ -148,15 +151,89 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Interview Attendance & Reschedule Health
   const interviewMetrics = useMemo(() => {
-    const totalLineups = safeInterviews.length;
-    const attended = safeInterviews.filter((i) => i?.interviewStatus === 'Attended').length;
-    const pending = safeInterviews.filter((i) => i && (i.interviewStatus === 'Pending' || !i.interviewStatus)).length;
-    const dropped = safeInterviews.filter((i) => i?.interviewStatus === 'Drop After Lineup').length;
-    const highRescheduled = safeInterviews.filter((i) => (i?.rescheduleCount || 1) >= 2);
+    // Total lineups: candidates who reached interview stage or have interview dates
+    const linedUpCandidates = filteredCandidates.filter(
+      (c) =>
+        c['Pipeline Stage'] === 'Interview Scheduled' ||
+        c['Pipeline Stage'] === 'Interview Attended' ||
+        Boolean(c['Interview Date'] && c['Interview Date'] !== '-')
+    );
+    const totalLineups = Math.max(safeInterviews.length, linedUpCandidates.length);
+    const attended = filteredCandidates.filter(
+      (c) => c['Pipeline Stage'] === 'Interview Attended' || c['Selection Status'] === 'Selected' || c['Joining Status'] === 'Joined'
+    ).length;
+    const pending = filteredCandidates.filter(
+      (c) => c['Pipeline Stage'] === 'Interview Scheduled' && (!c['Selection Status'] || c['Selection Status'] === 'Pending')
+    ).length;
+    const dropped = filteredCandidates.filter(
+      (c) => c['Pipeline Stage'] === 'Interview No Show' || c['Pipeline Stage'] === 'Dropped / Not Joined'
+    ).length;
+    const highRescheduled = safeInterviews.filter((i) => (i?.rescheduleCount || 0) >= 2);
     const attendanceRate = totalLineups ? Math.round((attended / totalLineups) * 100) : 0;
 
     return { totalLineups, attended, pending, dropped, highRescheduled, attendanceRate };
-  }, [safeInterviews]);
+  }, [filteredCandidates, safeInterviews]);
+
+  // Drop Reasons Breakdown (Filtered to true negative drop/rejections only)
+  const activeDropReasons = useMemo(() => {
+    const POSITIVE_STATUSES = new Set([
+      'interview schedule',
+      'interview scheduled',
+      'interview attended',
+      'interested',
+      'call back',
+      'callback',
+      'connected',
+      'shortlisted',
+      'selected',
+      'joined',
+      'none',
+      '-'
+    ]);
+
+    const map: Record<string, number> = {};
+    filteredCandidates.forEach((c) => {
+      if (!c) return;
+      const stage = c['Pipeline Stage'] || '';
+      const disp = c['Calling Disposition'] || '';
+      const status = c['Interview Status'] || '';
+      const subDisp = (c['Sub-Disposition'] || '').trim();
+
+      const isDrop =
+        stage === 'Rejected' ||
+        stage === 'Dropped / Not Joined' ||
+        stage === 'Not Interested / Closed' ||
+        stage === 'Interview No Show' ||
+        disp === 'Not Interested' ||
+        disp === 'Not Reachable' ||
+        status === 'Drop After Lineup' ||
+        c['Selection Status'] === 'Rejected';
+
+      if (isDrop) {
+        let reason = 'Other';
+        if (subDisp && !POSITIVE_STATUSES.has(subDisp.toLowerCase())) {
+          reason = subDisp;
+        } else if (stage === 'Interview No Show' || status === 'No Show') {
+          reason = 'Interview No Show';
+        } else if (status === 'Drop After Lineup') {
+          reason = 'Drop After Lineup';
+        } else if (c['Selection Status'] === 'Rejected') {
+          reason = 'Rejected by Client';
+        } else if (disp === 'Not Reachable') {
+          reason = 'Not Reachable';
+        } else if (disp === 'Not Interested') {
+          reason = 'Not Interested';
+        } else if (stage === 'Dropped / Not Joined') {
+          reason = 'Dropped Before Joining';
+        }
+        map[reason] = (map[reason] || 0) + 1;
+      }
+    });
+
+    return Object.keys(map)
+      .map((reason) => ({ reason, count: map[reason] }))
+      .sort((a, b) => b.count - a.count);
+  }, [filteredCandidates]);
 
   // Industry Diversity Breakdown
   const industryBreakdown = useMemo(() => {
@@ -179,7 +256,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div>
           <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
             <TrendingUp className="h-5 w-5 text-primary" />
-            {currentUser.role === 'ADMIN' ? 'Executive Recruitment Dashboard' : 'My Recruiter Workspace'}
+            {isAdmin ? 'Executive Recruitment Dashboard' : 'My Recruiter Workspace'}
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
             Real-time pipeline visibility, commercial revenue forecasting, and recruiter analytics
@@ -188,7 +265,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         {/* Dashboard Filters */}
         <div className="flex items-center gap-2 flex-wrap">
-          {currentUser.role === 'ADMIN' && (
+          {isAdmin && (
             <select
               value={filterHR}
               onChange={(e) => setFilterHR(e.target.value)}
@@ -289,17 +366,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="p-4 rounded-2xl bg-card border border-border shadow-sm hover:shadow-md transition-all">
           <div className="flex items-center justify-between text-muted-foreground">
             <span className="text-xs font-semibold">
-              {currentUser.role === 'ADMIN' ? 'Invoiced Revenue' : 'Sourced → Joined'}
+              {isAdmin ? 'Invoiced Revenue' : 'Sourced → Joined'}
             </span>
             <IndianRupee className="h-4 w-4 text-indigo-500" />
           </div>
           <div className="text-2xl font-bold text-foreground mt-2">
-            {currentUser.role === 'ADMIN'
+            {isAdmin
               ? `₹ ${Number(commercialHealth.totalInvoiced).toLocaleString('en-IN')}`
               : `${funnel.sourced ? Math.round((funnel.joined / funnel.sourced) * 100) : 0}%`}
           </div>
           <div className="text-[10px] text-muted-foreground mt-0.5">
-            {currentUser.role === 'ADMIN' ? 'Total billed placements' : 'Full conversion yield'}
+            {isAdmin ? 'Total billed placements' : 'Full conversion yield'}
           </div>
         </div>
       </div>
@@ -307,7 +384,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Row 2: Commercial Health Forecast & Pipeline Stage Distribution */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Commercial Revenue & Cashflow Pipeline Widget (High Visibility) */}
-        {currentUser.role === 'ADMIN' && (
+        {isAdmin && (
           <div className="p-5 rounded-2xl bg-card border border-border shadow-sm space-y-4 flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between">
@@ -521,17 +598,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <p className="text-xs text-muted-foreground mt-0.5">Logged sub-disposition root causes</p>
 
             <div className="mt-4 space-y-2.5">
-              {(!metrics?.dropReasons || metrics.dropReasons.length === 0) ? (
+              {activeDropReasons.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground text-xs">No drop reasons logged yet.</div>
               ) : (
-                (metrics?.dropReasons || []).map((dr, idx) => (
+                activeDropReasons.slice(0, 8).map((dr, idx) => (
                   <div key={idx} className="flex items-center justify-between text-xs">
                     <span className="text-foreground truncate max-w-[170px]">{dr.reason}</span>
                     <div className="flex items-center gap-2">
                       <div className="w-16 bg-muted rounded-full h-1.5 overflow-hidden">
                         <div
                           className="bg-red-500 h-1.5 rounded-full"
-                          style={{ width: `${Math.min(100, dr.count * 20)}%` }}
+                          style={{ width: `${Math.min(100, Math.max(15, (dr.count / (activeDropReasons[0]?.count || 1)) * 100))}%` }}
                         />
                       </div>
                       <span className="font-bold text-foreground">{dr.count}</span>
@@ -545,7 +622,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* Row 4: Recruiter Leaderboard & Industry Breakdown */}
-      {currentUser.role === 'ADMIN' && (
+      {isAdmin && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Recruiter Leaderboard */}
           <div className="p-5 rounded-2xl bg-card border border-border shadow-sm space-y-4">

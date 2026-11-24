@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -14,10 +14,12 @@ import {
   Filter,
   ExternalLink
 } from 'lucide-react';
-import type { InterviewItem, User as AuthUser } from '../types';
+import type { Candidate, InterviewItem, User as AuthUser } from '../types';
+import { calculateInterviewTimeBucket, parseDateIST } from '../utils/formatters';
 
 interface InterviewsViewProps {
   interviews: InterviewItem[];
+  candidates?: Candidate[];
   currentUser: AuthUser;
   onSelectCandidate: (candidateId: string) => void;
   onRefresh: () => void;
@@ -25,6 +27,7 @@ interface InterviewsViewProps {
 
 export const InterviewsView: React.FC<InterviewsViewProps> = ({
   interviews = [],
+  candidates = [],
   currentUser,
   onSelectCandidate,
   onRefresh
@@ -32,7 +35,99 @@ export const InterviewsView: React.FC<InterviewsViewProps> = ({
   const [activeBucket, setActiveBucket] = useState<'All' | 'Today' | 'Tomorrow' | 'This Week' | 'Overdue'>('All');
   const [search, setSearch] = useState('');
 
-  const filtered = (interviews || []).filter((item) => {
+  const processedInterviews = useMemo(() => {
+    // 1. Map candidates by candidateId for lookup
+    const candMap = new Map<string, Candidate>();
+    (candidates || []).forEach((c) => {
+      if (c['Candidate ID']) candMap.set(c['Candidate ID'], c);
+    });
+
+    // 2. Group raw interviews by candidateId
+    const grouped = new Map<string, InterviewItem[]>();
+    (interviews || []).forEach((item) => {
+      if (!item.candidateId) return;
+      const list = grouped.get(item.candidateId) || [];
+      list.push(item);
+      grouped.set(item.candidateId, list);
+    });
+
+    // 3. Also include candidates in "Interview Scheduled" stage who might not be in interviews collection
+    (candidates || []).forEach((c) => {
+      const id = c['Candidate ID'];
+      if (!id) return;
+      const isInterviewStage =
+        c['Pipeline Stage'] === 'Interview Scheduled' ||
+        Boolean(c['Interview Date'] && c['Interview Date'] !== '-');
+      if (isInterviewStage && !grouped.has(id)) {
+        grouped.set(id, [
+          {
+            candidateId: id,
+            candidateName: c['Candidate Name'] || 'Unknown Candidate',
+            mobile: c['Mobile Number'] || '',
+            designation: c['Designation Applied'] || 'General',
+            clientName: c['Client Name'] || 'Client not set',
+            assignedHR: c['Assigned HR'] || 'Unassigned',
+            hrEmail: c['HR Email'] || '',
+            interviewDate: c['Interview Date'] || '',
+            interviewStatus: c['Interview Status'] || 'Pending',
+            timeBucket: 'Upcoming'
+          }
+        ]);
+      }
+    });
+
+    // 4. Collapse each candidate's interviews to single record with reschedule history
+    const deduplicated: (InterviewItem & {
+      attemptCount: number;
+      earlierAttempts: string[];
+    })[] = [];
+
+    grouped.forEach((items, candidateId) => {
+      const cand = candMap.get(candidateId);
+
+      // Sort items by date ascending
+      items.sort((a, b) => {
+        const da = parseDateIST(a.interviewDate)?.getTime() || 0;
+        const db = parseDateIST(b.interviewDate)?.getTime() || 0;
+        return da - db;
+      });
+
+      const latest = items[items.length - 1];
+      const effectiveInterviewDate = latest.interviewDate || cand?.['Interview Date'] || '';
+      const effectiveClient =
+        latest.clientName && latest.clientName !== 'Client not set'
+          ? latest.clientName
+          : cand?.['Client Name'] || 'Client not set';
+      const effectiveDesignation =
+        latest.designation && latest.designation !== 'General'
+          ? latest.designation
+          : cand?.['Designation Applied'] || 'General';
+      const effectiveMobile = latest.mobile || cand?.['Mobile Number'] || '';
+      const effectiveHR = latest.assignedHR || cand?.['Assigned HR'] || 'Unassigned';
+
+      const timeBucket = calculateInterviewTimeBucket(effectiveInterviewDate, latest.interviewStatus);
+      const earlierAttempts = items.slice(0, -1).map((i) => i.interviewDate).filter(Boolean);
+
+      deduplicated.push({
+        ...latest,
+        candidateName: latest.candidateName || cand?.['Candidate Name'] || 'Unknown',
+        clientName: effectiveClient,
+        designation: effectiveDesignation,
+        mobile: effectiveMobile,
+        assignedHR: effectiveHR,
+        interviewDate: effectiveInterviewDate || 'Date missing',
+        timeBucket,
+        attemptCount: items.length,
+        earlierAttempts,
+        rescheduleFlag: items.length >= 2 ? 'HIGH RESCHEDULE' : latest.rescheduleFlag,
+        rescheduleCount: items.length - 1
+      });
+    });
+
+    return deduplicated;
+  }, [interviews, candidates]);
+
+  const filtered = processedInterviews.filter((item) => {
     if (activeBucket !== 'All' && item.timeBucket !== activeBucket) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -47,10 +142,10 @@ export const InterviewsView: React.FC<InterviewsViewProps> = ({
   });
 
   const bucketCounts = {
-    Today: (interviews || []).filter((i) => i.timeBucket === 'Today').length,
-    Tomorrow: (interviews || []).filter((i) => i.timeBucket === 'Tomorrow').length,
-    'This Week': (interviews || []).filter((i) => i.timeBucket === 'This Week').length,
-    Overdue: (interviews || []).filter((i) => i.timeBucket === 'Overdue').length
+    Today: processedInterviews.filter((i) => i.timeBucket === 'Today').length,
+    Tomorrow: processedInterviews.filter((i) => i.timeBucket === 'Tomorrow').length,
+    'This Week': processedInterviews.filter((i) => i.timeBucket === 'This Week').length,
+    Overdue: processedInterviews.filter((i) => i.timeBucket === 'Overdue').length
   };
 
   return (
@@ -164,10 +259,13 @@ export const InterviewsView: React.FC<InterviewsViewProps> = ({
                 </div>
 
                 {/* Reschedule Alert Tag */}
-                {item.rescheduleFlag === 'HIGH RESCHEDULE' && (
-                  <div className="mt-2 text-[10px] font-bold px-2 py-1 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200 flex items-center gap-1">
-                    <RotateCcw className="h-3 w-3 text-amber-600" />
-                    High Reschedule ({item.rescheduleCount} attempts)
+                {item.attemptCount > 1 && (
+                  <div className="mt-2 text-[10px] font-semibold px-2 py-1 rounded bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
+                    <RotateCcw className="h-3 w-3 text-amber-600 shrink-0" />
+                    <span>
+                      Attempt {item.attemptCount} of {item.attemptCount}
+                      {item.earlierAttempts.length > 0 && ` — Rescheduled from ${item.earlierAttempts[item.earlierAttempts.length - 1]}`}
+                    </span>
                   </div>
                 )}
 

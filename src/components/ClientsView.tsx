@@ -17,6 +17,35 @@ import {
 import type { Client, User as AuthUser } from '../types';
 import { api } from '../services/api';
 
+export function normalizeClient(raw: any): Client {
+  if (!raw) return {} as Client;
+  const clientId = raw.clientId || raw['Client ID'] || raw['client_id'] || '';
+  const clientName = raw.clientName || raw['Client Name'] || raw['client_name'] || '';
+  const status = raw.status || raw['Status'] || 'Active';
+  const feeType = raw.feeType || raw['Fee Type'] || (String(raw['Commercial Terms (Billing)'] || '').includes('%') ? 'Percentage' : 'Flat');
+  const feeValue = raw.feeValue ?? raw['Fee Value'] ?? raw['Commercial Terms (Billing)'] ?? '';
+  const invoiceAfterDays = raw.invoiceAfterDays ?? raw['Invoice After (Days)'] ?? raw['Invoice After Days'] ?? '';
+  const replacementPeriodDays = raw.replacementPeriodDays ?? raw['Replacement Period (Days)'] ?? raw['Replacement Period'] ?? '';
+  const gstPercent = raw.gstPercent ?? raw['GST %'] ?? raw['GST'] ?? 18;
+
+  return {
+    ...raw,
+    clientId,
+    clientName,
+    status,
+    feeType,
+    feeValue: feeValue !== '' ? String(feeValue).replace(/₹|,/g, '').trim() : '',
+    invoiceAfterDays: invoiceAfterDays !== '' ? String(invoiceAfterDays).trim() : '',
+    replacementPeriodDays: replacementPeriodDays !== '' ? String(replacementPeriodDays).trim() : '',
+    gstPercent: gstPercent !== '' ? gstPercent : 18,
+    contactPerson: raw.contactPerson || raw['Contact Person (Primary)'] || raw['Contact Person'] || '',
+    contactEmail: raw.contactEmail || raw['Contact Email'] || '',
+    contactPhone: raw.contactPhone || raw['Contact Phone'] || raw['Mobile Number'] || '',
+    industry: raw.industry || raw['Industry'] || 'General',
+    payrollType: raw.payrollType || raw['Payroll Type'] || 'Novapulse'
+  };
+}
+
 interface ClientsViewProps {
   clients: Client[];
   currentUser: AuthUser;
@@ -33,7 +62,11 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [clientFormData, setClientFormData] = useState<Partial<Client>>({});
 
-  const filtered = (clients || []).filter((cl) => {
+  const isAdmin = currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN';
+
+  const normalizedClients = (clients || []).map(normalizeClient);
+
+  const filtered = normalizedClients.filter((cl) => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
@@ -101,7 +134,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
           </p>
         </div>
 
-        {currentUser.role === 'ADMIN' && (
+        {isAdmin && (
           <button
             onClick={handleOpenAdd}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-md shadow-primary/20"
@@ -165,16 +198,25 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                 <div>
                   <span className="text-muted-foreground">Fee Model:</span>
                   <div className="font-semibold text-foreground">
-                    {cl.feeType === 'Percentage' ? `${cl.feeValue}% CTC` : `₹ ${cl.feeValue} Flat`} (+{cl.gstPercent}% GST)
+                    {cl.feeValue
+                      ? cl.feeType === 'Percentage'
+                        ? `${cl.feeValue}% CTC`
+                        : `₹ ${cl.feeValue} Flat`
+                      : 'Not set'}{' '}
+                    {cl.feeValue && `(+${cl.gstPercent || 18}% GST)`}
                   </div>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Invoice Due:</span>
-                  <div className="font-semibold text-foreground">{cl.invoiceAfterDays} Days post-join</div>
+                  <div className="font-semibold text-foreground">
+                    {cl.invoiceAfterDays ? `${cl.invoiceAfterDays} Days post-join` : 'Not set'}
+                  </div>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Replacement:</span>
-                  <div className="font-semibold text-foreground">{cl.replacementPeriodDays} Days</div>
+                  <div className="font-semibold text-foreground">
+                    {cl.replacementPeriodDays ? `${cl.replacementPeriodDays} Days` : 'Not set'}
+                  </div>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Payroll:</span>
@@ -217,7 +259,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                 >
                   Details
                 </button>
-                {currentUser.role === 'ADMIN' && (
+                {isAdmin && (
                   <button
                     onClick={() => handleOpenEdit(cl)}
                     className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground"

@@ -327,6 +327,7 @@ export const App: React.FC = () => {
                 {activeTab === 'interviews' && (
                   <InterviewsView
                     interviews={interviews}
+                    candidates={candidates}
                     currentUser={currentUser}
                     onSelectCandidate={(id) => setSelectedCandidateId(id)}
                     onRefresh={loadAllData}

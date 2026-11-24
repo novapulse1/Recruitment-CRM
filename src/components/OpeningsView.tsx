@@ -17,6 +17,43 @@ import {
 import type { Opening, User } from '../types';
 import { api } from '../services/api';
 
+export function normalizeOpening(raw: any): Opening {
+  if (!raw) return {} as Opening;
+  const openingId = raw['Opening ID'] || raw.openingId || raw.id || '';
+  const status = raw['Status'] || raw.status || 'Open';
+  const role = raw['Position / Role'] || raw.role || raw.position || raw.positionRole || '';
+  const clientName = raw['Client Name'] || raw.clientName || '';
+  const location = raw['Job Location (City)'] || raw.location || raw.city || '';
+  const officeAddress = raw['Office / Interview Address'] || raw.officeAddress || raw.address || '';
+  const skills = raw['Skills Required'] || raw.skillsRequired || raw.skills || '';
+  const qualification = raw['Qualification'] || raw.qualification || '';
+  const experience = raw['Experience Required'] || raw.experienceRequired || raw.experience || '';
+  const rawSalary = raw['Salary Slab (₹ / month)'] ?? raw.salarySlab ?? raw.salary ?? '';
+  const salarySlab = rawSalary && String(rawSalary).trim() !== '-' && String(rawSalary).trim() !== '' ? String(rawSalary).trim() : 'Not disclosed';
+  const vacancies = raw['No. of Vacancies'] ?? raw.vacancies ?? raw.numberOfVacancies ?? 1;
+
+  return {
+    ...raw,
+    'Opening ID': openingId,
+    'Status': status,
+    'Position / Role': role,
+    'Client Name': clientName,
+    'Job Location (City)': location,
+    'Office / Interview Address': officeAddress,
+    'Skills Required': skills,
+    'Qualification': qualification,
+    'Experience Required': experience,
+    'Salary Slab (₹ / month)': salarySlab,
+    'No. of Vacancies': vacancies !== '' && vacancies !== undefined ? Number(vacancies) || 1 : 1,
+    'Shift / Timings': raw['Shift / Timings'] || raw.shiftTimings || raw.shift || 'Day Shift',
+    'Working Days': raw['Working Days'] || raw.workingDays || 'Mon–Sat',
+    'Interview Mode / Process': raw['Interview Mode / Process'] || raw.interviewMode || 'Face to Face',
+    'Other Details / Perks': raw['Other Details / Perks'] || raw.otherDetails || '',
+    'Posted On': raw['Posted On'] || raw.postedOn || '',
+    'Last Updated': raw['Last Updated'] || raw.lastUpdated || ''
+  };
+}
+
 interface OpeningsViewProps {
   openings: Opening[];
   currentUser: User;
@@ -37,7 +74,11 @@ export const OpeningsView: React.FC<OpeningsViewProps> = ({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editFormData, setEditFormData] = useState<Partial<Opening>>({});
 
-  const filtered = (openings || []).filter((op) => {
+  const isAdmin = currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN';
+
+  const normalizedOpenings = (openings || []).map(normalizeOpening);
+
+  const filtered = normalizedOpenings.filter((op) => {
     if (filterStatus && String(op['Status']).toLowerCase() !== filterStatus.toLowerCase()) return false;
     if (filterCity && !op['Job Location (City)']?.toLowerCase().includes(filterCity.toLowerCase())) return false;
     if (search.trim()) {
@@ -103,7 +144,7 @@ export const OpeningsView: React.FC<OpeningsViewProps> = ({
           </p>
         </div>
 
-        {currentUser.role === 'ADMIN' && (
+        {isAdmin && (
           <button
             onClick={handleOpenAdd}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-md shadow-primary/20"
@@ -208,7 +249,7 @@ export const OpeningsView: React.FC<OpeningsViewProps> = ({
               </button>
 
               <div className="flex items-center gap-2">
-                {currentUser.role === 'ADMIN' && (
+                {isAdmin && (
                   <button
                     onClick={() => handleOpenEdit(op)}
                     className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground"
