@@ -166,7 +166,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             {/* Security Notice */}
             <div className="pt-2 text-center text-xs text-slate-400 flex items-center justify-center space-x-1.5">
               <Shield className="w-3.5 h-3.5 text-slate-400" />
-              <span>Protected by 256-bit PBKDF2 encryption & RBAC</span>
+              <span>Protected by Firebase Authentication & Cloud Firestore RBAC</span>
             </div>
           </form>
         </div>

@@ -83,10 +83,26 @@ async function syncAndPush(commitMessage = 'chore: sync and update recruitment c
     copyRecursiveSync(scriptsSrc, targetScripts);
   }
 
-  // 4. Sync DEPLOYMENT_GUIDE.md if present
+  // 4. Sync DEPLOYMENT_GUIDE.md, firestore.rules, package.json if present
   const guideSrc = path.join(WORKSPACE_DIR, 'DEPLOYMENT_GUIDE.md');
   if (fs.existsSync(guideSrc)) {
     fs.copyFileSync(guideSrc, path.join(REPO_DIR, 'DEPLOYMENT_GUIDE.md'));
+  }
+  const rulesSrc = path.join(WORKSPACE_DIR, 'firestore.rules');
+  if (fs.existsSync(rulesSrc)) {
+    fs.copyFileSync(rulesSrc, path.join(REPO_DIR, 'firestore.rules'));
+  }
+  const envExSrc = path.join(WORKSPACE_DIR, 'frontend', '.env.example');
+  if (fs.existsSync(envExSrc)) {
+    fs.copyFileSync(envExSrc, path.join(REPO_DIR, '.env.example'));
+  }
+  const pkgSrc = path.join(WORKSPACE_DIR, 'frontend', 'package.json');
+  if (fs.existsSync(pkgSrc)) {
+    fs.copyFileSync(pkgSrc, path.join(REPO_DIR, 'package.json'));
+  }
+  const lockSrc = path.join(WORKSPACE_DIR, 'frontend', 'package-lock.json');
+  if (fs.existsSync(lockSrc)) {
+    fs.copyFileSync(lockSrc, path.join(REPO_DIR, 'package-lock.json'));
   }
 
   // 5. Stage files in git

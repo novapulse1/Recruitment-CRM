@@ -1,0 +1,159 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // =========================================================================
+    // HELPER FUNCTIONS FOR ROLE-BASED ACCESS CONTROL (RBAC)
+    // =========================================================================
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function getUserRecord() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function getUserRole() {
+      return getUserRecord().role;
+    }
+    
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email.lower() == 'novapulse739@gmail.com' ||
+        getUserRole() == 'SUPER_ADMIN'
+      );
+    }
+    
+    function isAdmin() {
+      return isSignedIn() && (
+        isSuperAdmin() ||
+        getUserRole() == 'ADMIN'
+      );
+    }
+    
+    function isManager() {
+      return isSignedIn() && (
+        isAdmin() ||
+        getUserRole() == 'RECRUITMENT_MANAGER'
+      );
+    }
+    
+    function isRecruiter() {
+      return isSignedIn() && (
+        isManager() ||
+        getUserRole() == 'HR_RECRUITER' ||
+        getUserRole() == 'HR'
+      );
+    }
+    
+    function isFinance() {
+      return isSignedIn() && (
+        isAdmin() ||
+        getUserRole() == 'FINANCE'
+      );
+    }
+
+    // =========================================================================
+    // COLLECTION ACCESS RULES
+    // =========================================================================
+
+    // 1. Users Collection (User Profiles and RBAC Roles)
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      // Allow users to update their own last login or password change status
+      allow update: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      // Only Super Admin and Admin can create or delete user profiles
+      allow create, delete: if isAdmin();
+    }
+
+    // 2. Candidates Collection
+    match /candidates/{candidateId} {
+      // Super Admin, Admin, Finance, and Managers have broad read access.
+      // Recruiters can only read candidates assigned to their email.
+      allow read: if isAdmin() || isFinance() || isManager() || (
+        isRecruiter() && (
+          resource == null ||
+          resource.data['HR Email'].lower() == request.auth.token.email.lower()
+        )
+      );
+      
+      // Recruiters, Managers, and Admins can create candidates
+      allow create: if isRecruiter();
+      
+      // Admins and Managers can update any candidate.
+      // Recruiters can only update candidates assigned to their email.
+      allow update: if isAdmin() || isManager() || (
+        isRecruiter() && (
+          resource.data['HR Email'].lower() == request.auth.token.email.lower()
+        )
+      );
+      
+      // Only Super Admin and Admin can delete or archive candidates
+      allow delete: if isAdmin();
+    }
+
+    // 3. Openings Collection
+    match /openings/{openingId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isManager();
+    }
+
+    // 4. Clients Collection
+    match /clients/{clientId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isFinance();
+    }
+
+    // 5. Interviews Collection
+    match /interviews/{interviewId} {
+      allow read: if isSignedIn();
+      allow write: if isRecruiter();
+    }
+
+    // 6. Joinings & Billing Collection
+    match /joinings/{joiningId} {
+      allow read: if isAdmin() || isFinance() || isManager();
+      allow write: if isAdmin() || isFinance();
+    }
+
+    // 7. Lead Approvals Collection
+    match /leads/{leadId} {
+      allow read: if isSignedIn();
+      allow create: if isRecruiter();
+      allow update, delete: if isAdmin();
+    }
+
+    // 8. HR Registry Collection
+    match /hrs/{hrId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 9. Audits Collection (Immutable Audit Trail)
+    match /audits/{auditId} {
+      allow read: if isAdmin() || isManager();
+      allow create: if isSignedIn();
+      allow update, delete: if false; // Security logs cannot be altered or deleted
+    }
+
+    // 10. Duplicates Collection
+    match /duplicates/{duplicateId} {
+      allow read: if isAdmin() || isManager();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    // 11. Dropdowns Collection
+    match /dropdowns/{dropdownId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 12. System Configuration Collection
+    match /config/{configId} {
+      allow read: if isSignedIn();
+      allow write: if isSuperAdmin();
+    }
+  }
+}
