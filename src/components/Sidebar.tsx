@@ -343,7 +343,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               onClick={() => handleNavClick('admin')}
               className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              title="Database Connection Settings"
+              title="Database & Admin Settings"
             >
               <Database className="h-4 w-4" />
             </button>

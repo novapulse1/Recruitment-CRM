@@ -26,10 +26,8 @@ import {
   Key,
   Copy,
   CheckCheck,
-  Power,
-  UploadCloud
+  Power
 } from 'lucide-react';
-import { ImportLocalDataModal } from './ImportLocalDataModal';
 import { api } from '../services/api';
 import { PERMISSIONS, ROLE_PERMISSIONS, getCandidateDataScope, can } from '../services/permissions';
 import type { User, UserRole, RBACOverview, RBACUser } from '../types';
@@ -63,7 +61,6 @@ export const RBACManagementView: React.FC<RBACManagementViewProps> = ({ currentU
 
   // Security logs
   const [securityLogs, setSecurityLogs] = useState<any[]>([]);
-  const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
 
   const fetchRBACData = async () => {
     setLoading(true);
@@ -338,19 +335,11 @@ export const RBACManagementView: React.FC<RBACManagementViewProps> = ({ currentU
             </h1>
             <p className="text-purple-200/80 text-sm mt-1 max-w-2xl">
               Centrally manage module permissions, action authorization, recruiter scoping, and team hierarchies.
-              All rules are persisted safely into Google Sheets <code className="text-purple-300 bg-purple-950/60 px-1.5 py-0.5 rounded text-xs">CONFIGURATION</code>.
+              All policies, user roles, and team mappings are persisted securely in Cloud Firestore.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsImportModalOpen(true)}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/40 text-indigo-200 text-xs font-semibold transition-all shadow-sm"
-              title="Import local storage database into Cloud Firestore"
-            >
-              <UploadCloud className="w-3.5 h-3.5" />
-              Import Local Data
-            </button>
             <button
               onClick={fetchRBACData}
               disabled={loading}
@@ -1154,15 +1143,6 @@ export const RBACManagementView: React.FC<RBACManagementViewProps> = ({ currentU
           </div>
         </div>
       )}
-
-      {/* One-Time Local Data Migration Modal */}
-      <ImportLocalDataModal
-        isOpen={isImportModalOpen}
-        onClose={() => setIsImportModalOpen(false)}
-        onSuccess={() => {
-          fetchRBACData();
-        }}
-      />
     </div>
   );
 };

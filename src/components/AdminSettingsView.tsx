@@ -16,8 +16,8 @@ import {
   Database
 } from 'lucide-react';
 import type { HRRecord, DropdownOption, User } from '../types';
-import { APP_CONFIG } from '../config';
 import { api } from '../services/api';
+import { firebaseConfig } from '../services/firebase';
 
 interface AdminSettingsViewProps {
   currentUser: User;
@@ -33,7 +33,6 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
   const [dropdowns, setDropdowns] = useState<DropdownOption[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [selectedLogType, setSelectedLogType] = useState('AUDIT_LOG');
-  const [apiUrl, setApiUrl] = useState(api.getBaseUrl());
   const [loading, setLoading] = useState(false);
 
   // New HR Modal
@@ -126,11 +125,6 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
     } catch (e: any) {
       alert('Error adding option: ' + e.message);
     }
-  };
-
-  const handleSaveApiUrl = () => {
-    api.setBaseUrl(apiUrl);
-    alert('API Web App URL saved successfully!');
   };
 
   return (
@@ -389,50 +383,47 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
         </div>
       )}
 
-      {/* BACKEND CONNECTION SETUP */}
+      {/* CLOUD FIRESTORE DATABASE STATUS */}
       {activeSection === 'connection' && (
         <div className="space-y-6 max-w-3xl">
           <div className="p-5 rounded-2xl bg-card border border-border shadow-sm space-y-4">
-            <h2 className="text-base font-bold text-foreground flex items-center gap-2">
-              <Server className="h-5 w-5 text-primary" /> Google Apps Script Web App Deployment
-            </h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-foreground flex items-center gap-2">
+                <Database className="h-5 w-5 text-indigo-500" /> Cloud Firestore Connection Status
+              </h2>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                Connected
+              </span>
+            </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              The CRM communicates directly with your Google Sheet via the Google Apps Script Web App API built in{' '}
-              <code className="text-primary font-mono">apps-script/Code.gs</code>.
+              NovaPulse CRM communicates directly with Google Cloud Firestore with real-time synchronization and secure role-based access control.
             </p>
 
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-muted/20 p-4 rounded-xl border border-border">
               <div>
-                <label className="block text-xs font-semibold text-foreground mb-1">
-                  Google Apps Script Web App URL
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="https://script.google.com/macros/s/.../exec"
-                    value={apiUrl}
-                    onChange={(e) => setApiUrl(e.target.value)}
-                    className="flex-1 px-3 py-2 rounded-lg border border-border bg-background text-sm font-mono outline-none"
-                  />
-                  <button
-                    onClick={handleSaveApiUrl}
-                    className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90"
-                  >
-                    Save URL
-                  </button>
-                </div>
+                <span className="text-muted-foreground">Firebase Project ID:</span>
+                <div className="font-mono font-bold text-foreground truncate mt-0.5">{firebaseConfig.projectId || 'novapulse-crm'}</div>
               </div>
+              <div>
+                <span className="text-muted-foreground">Auth Domain:</span>
+                <div className="font-mono font-bold text-foreground truncate mt-0.5">{firebaseConfig.authDomain || 'novapulse-crm.firebaseapp.com'}</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Signed-In Administrator:</span>
+                <div className="font-mono font-bold text-primary truncate mt-0.5">{currentUser.email} ({currentUser.role})</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Storage Engine:</span>
+                <div className="font-mono font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">Google Cloud Firestore</div>
+              </div>
+            </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-muted/20 p-3 rounded-xl border border-border">
-                <div>
-                  <span className="text-muted-foreground">Production Spreadsheet ID:</span>
-                  <div className="font-mono font-bold text-foreground truncate">{APP_CONFIG.LIVE_SPREADSHEET_ID}</div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Dev Copy Spreadsheet ID:</span>
-                  <div className="font-mono font-bold text-emerald-600 truncate">{APP_CONFIG.DEV_SPREADSHEET_ID}</div>
-                </div>
-              </div>
+            <div className="p-3.5 rounded-xl bg-indigo-500/5 border border-indigo-500/15 text-xs text-muted-foreground flex items-start gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+              <span>
+                All core collections (candidates, openings, clients, joinings, interviews, and audits) are managed directly through Cloud Firestore security rules. Legacy Google Apps Script Web App endpoints have been fully decommissioned.
+              </span>
             </div>
           </div>
         </div>

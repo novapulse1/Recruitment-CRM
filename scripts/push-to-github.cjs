@@ -48,6 +48,19 @@ function copyRecursiveSync(src, dest) {
   }
 }
 
+function pruneSync(srcDir, destDir) {
+  if (!fs.existsSync(destDir)) return;
+  for (const item of fs.readdirSync(destDir)) {
+    const srcPath = path.join(srcDir, item);
+    const destPath = path.join(destDir, item);
+    if (!fs.existsSync(srcPath)) {
+      fs.rmSync(destPath, { recursive: true, force: true });
+    } else if (fs.statSync(destPath).isDirectory()) {
+      pruneSync(srcPath, destPath);
+    }
+  }
+}
+
 async function syncAndPush(commitMessage = 'chore: sync and update recruitment crm') {
   const token = getGitHubToken();
   console.log('--- NovaPulse CRM Git Push ---');
@@ -59,6 +72,7 @@ async function syncAndPush(commitMessage = 'chore: sync and update recruitment c
   const targetSrc = path.join(REPO_DIR, 'src');
   if (fs.existsSync(frontendSrc)) {
     console.log('Syncing frontend/src -> src...');
+    pruneSync(frontendSrc, targetSrc);
     copyRecursiveSync(frontendSrc, targetSrc);
   }
 

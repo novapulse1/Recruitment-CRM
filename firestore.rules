@@ -90,7 +90,7 @@ service cloud.firestore {
       );
       
       // Only Super Admin and Admin can delete or archive candidates
-      allow delete: if isAdmin();
+      allow delete: if isSuperAdmin();
     }
 
     // 3. Openings Collection

@@ -4,6 +4,8 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
 interface Props {
   children: ReactNode;
   fallbackTitle?: string;
+  resetKey?: any;
+  pageName?: string;
 }
 
 interface State {
@@ -22,7 +24,14 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('ErrorBoundary caught an unhandled error:', error, errorInfo);
+    const page = this.props.pageName || this.props.fallbackTitle || 'Unknown Page';
+    console.error(`[ErrorBoundary] Unhandled error on page [${page}]:`, error, errorInfo);
+  }
+
+  public componentDidUpdate(prevProps: Props) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, error: null });
+    }
   }
 
   private handleReset = () => {

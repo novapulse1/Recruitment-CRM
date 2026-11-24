@@ -24,7 +24,7 @@ import {
   runTransaction
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { MASTER_MIGRATION_DATA } from '../data/masterMigrationData';
+import { ROLE_PERMISSIONS, PERMISSIONS } from './permissions';
 import type {
   Candidate,
   Client,
@@ -726,321 +726,43 @@ export async function getRBACOverviewFromFirestore(user: User): Promise<RBACOver
     });
   });
 
+  // Fallback seed team users if Firestore users collection is currently empty
+  if (users.length === 0) {
+    const defaultTeamUsers: RBACUser[] = [
+      { user_id: 'superadmin', email: 'novapulse739@gmail.com', name: 'Super Administrator', role: 'SUPER_ADMIN', status: 'Active' },
+      { user_id: 'admin', email: 'admin@novapulse.co.in', name: 'Recruitment Admin', role: 'ADMIN', status: 'Active' },
+      { user_id: 'manager', email: 'manager@novapulse.co.in', name: 'Recruitment Manager', role: 'RECRUITMENT_MANAGER', status: 'Active' },
+      { user_id: 'anshu', email: 'hr@novapulse.co.in', name: 'Anshu', role: 'HR_RECRUITER', status: 'Active' },
+      { user_id: 'jigyasa', email: 'gjigyasa11@gmail.com', name: 'Jigyasha', role: 'HR_RECRUITER', status: 'Active' },
+      { user_id: 'finance', email: 'finance@novapulse.co.in', name: 'Finance Officer', role: 'FINANCE', status: 'Active' }
+    ];
+    users.push(...defaultTeamUsers);
+  }
+
   const audits = await getAuditsFromFirestore();
   const securityAudits = audits.filter((a) => a['Action Type'] === 'SECURITY' || a['Candidate ID'] === 'AUTH');
 
   return {
-    currentUser: user,
     users,
-    audits: securityAudits,
-    matrix: {},
-    teamMappings: {
+    rolePermissions: ROLE_PERMISSIONS,
+    allPermissions: PERMISSIONS as unknown as Record<string, string>,
+    teamMapping: {
       'manager@novapulse.co.in': ['hr@novapulse.co.in', 'gjigyasa11@gmail.com']
-    }
+    },
+    rbacEnabled: true
   };
 }
 
-// ==================== ONE-TIME MASTER DATA MIGRATION ====================
-
-export async function importLocalDataToFirestore(user: User): Promise<{
+// Deprecated: UI button removed per security requirement A3.
+// Master data migration is executed via standalone server script scripts/migrate_master_to_firestore.cjs
+export async function importLocalDataToFirestore(_user: User): Promise<{
   success: boolean;
   imported: Record<string, number>;
   message: string;
 }> {
-  const firestore = requireDb();
-
-  // Load master dataset from Google Sheets export
-  const master = MASTER_MIGRATION_DATA;
-
-  // Check if there is also any legacy local db to merge
-  let localStore: any = null;
-  const rawData = localStorage.getItem('novapulse_local_db');
-  if (rawData) {
-    try {
-      localStore = JSON.parse(rawData);
-    } catch (e) {
-      console.warn('Could not parse localStore:', e);
-    }
-  }
-
-  const counts: Record<string, number> = {
-    candidates: 0,
-    openings: 0,
-    clients: 0,
-    joinings: 0,
-    interviews: 0,
-    leads: 0,
-    hrs: 0,
-    users: 0,
-    dropdowns: 0
-  };
-
-  // Helper for batch commits (Firestore allows up to 500 writes per batch)
-  const commitInChunks = async <T>(
-    items: T[],
-    getDocRefAndData: (item: T) => { ref: any; data: any } | null,
-    chunkSize = 300
-  ): Promise<number> => {
-    let written = 0;
-    for (let i = 0; i < items.length; i += chunkSize) {
-      const chunk = items.slice(i, i + chunkSize);
-      const batch = writeBatch(firestore);
-      let batchCount = 0;
-      for (const item of chunk) {
-        const pair = getDocRefAndData(item);
-        if (pair && pair.ref) {
-          batch.set(pair.ref, pair.data, { merge: true });
-          batchCount++;
-        }
-      }
-      if (batchCount > 0) {
-        await batch.commit();
-        written += batchCount;
-      }
-    }
-    return written;
-  };
-
-  // 1. Candidates (1,057 records from master dataset + local merges)
-  const candidateMap = new Map<string, any>();
-  if (Array.isArray(master.candidates)) {
-    for (const c of master.candidates) {
-      if (c && c['Candidate ID']) {
-        candidateMap.set(c['Candidate ID'], { ...c });
-      }
-    }
-  }
-  if (localStore && Array.isArray(localStore.candidates)) {
-    for (const c of localStore.candidates) {
-      if (c && c['Candidate ID']) {
-        const existing = candidateMap.get(c['Candidate ID']) || {};
-        candidateMap.set(c['Candidate ID'], { ...existing, ...c });
-      }
-    }
-  }
-  const candidateList = Array.from(candidateMap.values());
-  counts.candidates = await commitInChunks(
-    candidateList,
-    (c) => ({
-      ref: doc(firestore, 'candidates', c['Candidate ID']),
-      data: c
-    })
-  );
-
-  // 2. Openings (15 records from master dataset + local merges)
-  const openingMap = new Map<string, any>();
-  if (Array.isArray(master.openings)) {
-    for (const o of master.openings) {
-      if (o && o['Opening ID']) {
-        openingMap.set(o['Opening ID'], { ...o });
-      }
-    }
-  }
-  if (localStore && Array.isArray(localStore.openings)) {
-    for (const o of localStore.openings) {
-      if (o && o['Opening ID']) {
-        const existing = openingMap.get(o['Opening ID']) || {};
-        openingMap.set(o['Opening ID'], { ...existing, ...o });
-      }
-    }
-  }
-  const openingList = Array.from(openingMap.values());
-  counts.openings = await commitInChunks(
-    openingList,
-    (o) => ({
-      ref: doc(firestore, 'openings', o['Opening ID']),
-      data: o
-    })
-  );
-
-  // 3. Clients (21 records from master dataset + local merges)
-  const clientMap = new Map<string, any>();
-  if (Array.isArray(master.clients)) {
-    for (const cl of master.clients) {
-      if (cl && cl.clientId) {
-        clientMap.set(cl.clientId, { ...cl });
-      }
-    }
-  }
-  if (localStore && Array.isArray(localStore.clients)) {
-    for (const cl of localStore.clients) {
-      if (cl && cl.clientId) {
-        const existing = clientMap.get(cl.clientId) || {};
-        clientMap.set(cl.clientId, { ...existing, ...cl });
-      }
-    }
-  }
-  const clientList = Array.from(clientMap.values());
-  counts.clients = await commitInChunks(
-    clientList,
-    (cl) => ({
-      ref: doc(firestore, 'clients', cl.clientId),
-      data: cl
-    })
-  );
-
-  // 4. Joinings (13 records from master dataset + local merges)
-  const joiningMap = new Map<string, any>();
-  if (Array.isArray(master.joinings)) {
-    for (const j of master.joinings) {
-      if (j && j.candidateId) {
-        joiningMap.set(j.candidateId, { ...j });
-      }
-    }
-  }
-  if (localStore && Array.isArray(localStore.joinings)) {
-    for (const j of localStore.joinings) {
-      if (j && j.candidateId) {
-        const existing = joiningMap.get(j.candidateId) || {};
-        joiningMap.set(j.candidateId, { ...existing, ...j });
-      }
-    }
-  }
-  const joiningList = Array.from(joiningMap.values());
-  counts.joinings = await commitInChunks(
-    joiningList,
-    (j) => ({
-      ref: doc(firestore, 'joinings', j.candidateId),
-      data: j
-    })
-  );
-
-  // 5. Interviews (99 records from master dataset + local merges)
-  const interviewMap = new Map<string, any>();
-  if (Array.isArray(master.interviews)) {
-    for (const i of master.interviews) {
-      if (i && i.interviewId) {
-        interviewMap.set(i.interviewId, { ...i });
-      }
-    }
-  }
-  if (localStore && Array.isArray(localStore.interviews)) {
-    for (const i of localStore.interviews) {
-      if (i && i.interviewId) {
-        const existing = interviewMap.get(i.interviewId) || {};
-        interviewMap.set(i.interviewId, { ...existing, ...i });
-      }
-    }
-  }
-  const interviewList = Array.from(interviewMap.values());
-  counts.interviews = await commitInChunks(
-    interviewList,
-    (i) => ({
-      ref: doc(firestore, 'interviews', i.interviewId),
-      data: i
-    })
-  );
-
-  // 6. Leads (2 records from master dataset + local merges)
-  const leadMap = new Map<string, any>();
-  if (Array.isArray(master.leads)) {
-    for (const l of master.leads) {
-      if (l && l['Lead ID']) {
-        leadMap.set(l['Lead ID'], { ...l });
-      }
-    }
-  }
-  if (localStore && Array.isArray(localStore.leads)) {
-    for (const l of localStore.leads) {
-      if (l && l['Lead ID']) {
-        const existing = leadMap.get(l['Lead ID']) || {};
-        leadMap.set(l['Lead ID'], { ...existing, ...l });
-      }
-    }
-  }
-  const leadList = Array.from(leadMap.values());
-  counts.leads = await commitInChunks(
-    leadList,
-    (l) => ({
-      ref: doc(firestore, 'leads', l['Lead ID']),
-      data: l
-    })
-  );
-
-  // 7. HRs (2 records from master dataset + local merges)
-  const hrMap = new Map<string, any>();
-  if (Array.isArray(master.hrs)) {
-    for (const h of master.hrs) {
-      const docId = (h as any)['HR ID'] || (h as any).hrId;
-      if (docId) {
-        hrMap.set(docId, { ...h });
-      }
-    }
-  }
-  if (localStore && Array.isArray(localStore.hrs)) {
-    for (const h of localStore.hrs) {
-      const docId = h['HR ID'] || h.hrId || h.email;
-      if (docId) {
-        const existing = hrMap.get(docId) || {};
-        hrMap.set(docId, { ...existing, ...h });
-      }
-    }
-  }
-  const hrList = Array.from(hrMap.values());
-  counts.hrs = await commitInChunks(
-    hrList,
-    (h: any) => ({
-      ref: doc(firestore, 'hrs', h['HR ID'] || h.hrId),
-      data: h
-    })
-  );
-
-  // 8. Users (Skip password_hash and salt completely)
-  if (localStore && Array.isArray(localStore.users)) {
-    for (const u of localStore.users) {
-      const { password_hash, salt, ...safeUser } = u;
-      const docId = safeUser.email || safeUser.user_id;
-      if (docId) {
-        await setDoc(
-          doc(firestore, 'users', docId),
-          {
-            ...safeUser,
-            importedAt: new Date().toISOString(),
-            importedBy: user.email
-          },
-          { merge: true }
-        );
-        counts.users++;
-      }
-    }
-  }
-
-  // 9. Dropdowns
-  const defaultDropdowns = await getDropdownsFromFirestore();
-  counts.dropdowns = Object.keys(defaultDropdowns).length;
-
-  // 10. Update ID Counters document (Highest candidate: 1158, next candidate: 1159)
-  await setDoc(
-    doc(firestore, 'config', 'counters'),
-    {
-      lastCandidateNum: 1158,
-      nextCandidateId: 'NP-CAN-001159',
-      updatedAt: serverTimestamp(),
-      updatedBy: user.email
-    },
-    { merge: true }
-  );
-
-  // 11. Log audit entry
-  await logAuditEntry({
-    Timestamp: new Date().toLocaleString('en-GB'),
-    'Candidate ID': 'SYSTEM',
-    'Candidate Name': 'Master Database Migration',
-    'Previous Value': 'Initial state',
-    'New Value': `Imported ${counts.candidates} candidates, ${counts.clients} clients, ${counts.openings} openings, ${counts.joinings} joinings, ${counts.interviews} interviews, ${counts.leads} leads`,
-    Action: 'DATA_IMPORT_COMPLETED',
-    'Updated By': user.email,
-    'HR Name': user.name,
-    'Source Spreadsheet': 'FIRESTORE',
-    'Action Type': 'SECURITY'
-  });
-
-  // Permanently delete novapulse_local_db from localStorage
-  localStorage.removeItem('novapulse_local_db');
-
   return {
     success: true,
-    imported: counts,
-    message: `Master dataset successfully synchronized with Cloud Firestore! Migrated ${counts.candidates} candidates (NP-CAN-000043 to NP-CAN-001158), ${counts.clients} clients, ${counts.openings} openings, ${counts.joinings} joinings, ${counts.interviews} interviews, ${counts.leads} leads. Counter initialized: next Candidate ID is NP-CAN-001159.`
+    imported: {},
+    message: 'Master database import from UI has been decommissioned. Use CSV import or server migration script.'
   };
 }
