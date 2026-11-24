@@ -21,6 +21,7 @@ import { InactivityWarningModal } from './components/InactivityWarningModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { FirebaseConfigMissing } from './components/FirebaseConfigMissing';
 import { ImportLocalDataModal } from './components/ImportLocalDataModal';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Database, UploadCloud } from 'lucide-react';
 import { isFirebaseConfigured } from './services/firebase';
 import { api } from './services/api';
@@ -310,7 +311,7 @@ export const App: React.FC = () => {
                 onSwitchPersona={handleSwitchUser}
               />
             ) : (
-              <>
+              <ErrorBoundary fallbackTitle={`Error Loading ${activeTab.toUpperCase()}`}>
                 {activeTab === 'dashboard' && (
                   <DashboardView
                     metrics={dashboardMetrics}
@@ -406,7 +407,7 @@ export const App: React.FC = () => {
                     currentUser={currentUser}
                   />
                 )}
-              </>
+              </ErrorBoundary>
             )}
           </div>
         </main>

@@ -518,43 +518,151 @@ export async function getDropdownsFromFirestore(): Promise<Record<string, Dropdo
 // ==================== DASHBOARD METRICS ====================
 
 export async function computeDashboardFromFirestore(user: User): Promise<DashboardMetrics> {
-  const candidates = await getCandidatesFromFirestore(user);
-  const interviews = await getInterviewsFromFirestore();
-  const joinings = await getJoiningsFromFirestore();
-  const clients = await getClientsFromFirestore();
+  const candidates = (await getCandidatesFromFirestore(user)) || [];
+  const interviews = (await getInterviewsFromFirestore()) || [];
+  const joinings = (await getJoiningsFromFirestore()) || [];
+  const clients = (await getClientsFromFirestore()) || [];
 
   const totalSourced = candidates.length;
   const connected = candidates.filter(
-    (c) => c['Connect Status'] === 'Connect' || c['Calling Disposition'] === 'Connected' || c['Calling Disposition'] === 'Interview Scheduled'
+    (c) => c && (c['Connect Status'] === 'Connect' || c['Calling Disposition'] === 'Connected' || c['Calling Disposition'] === 'Interview Scheduled')
   ).length;
-  const linedUp = candidates.filter((c) => Boolean(c['Interview Date'])).length;
-  const attended = interviews.filter((i) => i.interviewStatus === 'Attended').length;
-  const selected = candidates.filter((c) => c['Selection Status'] === 'Selected').length;
-  const joined = joinings.filter((j) => j.billingStatus === 'Invoiced' || j.billingStatus === 'Paid').length;
+  const interested = candidates.filter(
+    (c) => c && (c['Calling Disposition'] === 'Interested' || c['Calling Disposition'] === 'Interview Schedule' || Boolean(c['Interview Date']))
+  ).length;
+  const interviewScheduled = candidates.filter(
+    (c) => c && Boolean(c['Interview Date']) && c['Interview Date'] !== '-'
+  ).length;
+  const interviewAttended = interviews.filter((i) => i && i.interviewStatus === 'Attended').length;
+  const selected = candidates.filter((c) => c && c['Selection Status'] === 'Selected').length;
+  const joined = joinings.filter((j) => j && (j.billingStatus === 'Invoiced' || j.billingStatus === 'Paid')).length;
 
-  const totalRevenue = joinings.reduce((sum, j) => sum + (Number(j.invoiceAmount) || 0), 0);
-  const pendingRevenue = joinings.filter((j) => j.invoiceStatus !== 'Paid').reduce((sum, j) => sum + (Number(j.invoiceAmount) || 0), 0);
-  const activeGuarantees = joinings.filter((j) => (j.replacementRemainingDays || 0) > 0).length;
+  const totalRevenue = joinings.reduce((sum, j) => sum + (Number(j?.invoiceAmount) || 0), 0);
+  const pendingRevenue = joinings.filter((j) => j?.invoiceStatus !== 'Paid').reduce((sum, j) => sum + (Number(j?.invoiceAmount) || 0), 0);
+  const receivedRevenue = joinings.filter((j) => j?.invoiceStatus === 'Paid').reduce((sum, j) => sum + (Number(j?.invoiceAmount) || 0), 0);
+  const activeGuarantees = joinings.filter((j) => (j?.replacementRemainingDays || 0) > 0).length;
+
+  // Drop Reasons Breakdown
+  const dropReasonsMap: Record<string, number> = {};
+  candidates.forEach((c) => {
+    if (!c) return;
+    const disp = c['Calling Disposition'] || '';
+    const status = c['Interview Status'] || '';
+    const subDisp = c['Sub-Disposition'] || '';
+    if (
+      disp === 'Not Interested' ||
+      disp === 'Not Connected' ||
+      status === 'Drop After Lineup' ||
+      c['Selection Status'] === 'Rejected' ||
+      c['Joining Status'] === 'Dropped'
+    ) {
+      const reason = subDisp || disp || status || 'Other';
+      dropReasonsMap[reason] = (dropReasonsMap[reason] || 0) + 1;
+    }
+  });
+
+  const dropReasons = Object.keys(dropReasonsMap)
+    .map((reason) => ({ reason, count: dropReasonsMap[reason] }))
+    .sort((a, b) => b.count - a.count);
+
+  // Recruiter Leaderboard
+  const hrMap: Record<string, { sourced: number; connected: number; interviews: number; selected: number; joined: number }> = {};
+  candidates.forEach((c) => {
+    if (!c) return;
+    const hr = c['Assigned HR'] || 'Unassigned';
+    if (!hrMap[hr]) {
+      hrMap[hr] = { sourced: 0, connected: 0, interviews: 0, selected: 0, joined: 0 };
+    }
+    hrMap[hr].sourced += 1;
+    if (c['Connect Status'] === 'Connect' || c['Calling Disposition'] === 'Connected' || c['Interview Date']) {
+      hrMap[hr].connected += 1;
+    }
+    if (c['Interview Date'] && c['Interview Date'] !== '-') {
+      hrMap[hr].interviews += 1;
+    }
+    if (c['Selection Status'] === 'Selected' || c['Joining Status'] === 'Joined') {
+      hrMap[hr].selected += 1;
+    }
+    if (c['Joining Status'] === 'Joined') {
+      hrMap[hr].joined += 1;
+    }
+  });
+
+  const leaderboard = Object.keys(hrMap)
+    .map((hrName) => ({
+      hrName,
+      ...hrMap[hrName]
+    }))
+    .sort((a, b) => b.joined - a.joined || b.selected - a.selected);
+
+  // Client Breakdown
+  const clientMap: Record<string, number> = {};
+  candidates.forEach((c) => {
+    if (!c) return;
+    const cl = c['Client Name'] || 'Unassigned';
+    clientMap[cl] = (clientMap[cl] || 0) + 1;
+  });
+  const clientBreakdown = Object.keys(clientMap)
+    .map((client) => ({ client, count: clientMap[client] }))
+    .sort((a, b) => b.count - a.count);
+
+  // Source Breakdown
+  const sourceMap: Record<string, number> = {};
+  candidates.forEach((c) => {
+    if (!c) return;
+    const src = c['Source'] || 'Direct';
+    sourceMap[src] = (sourceMap[src] || 0) + 1;
+  });
+  const sourceBreakdown = Object.keys(sourceMap)
+    .map((source) => ({ source, count: sourceMap[source] }))
+    .sort((a, b) => b.count - a.count);
 
   return {
-    totalSourced,
-    connected,
-    linedUp,
-    attended,
-    selected,
-    joined,
+    funnel: {
+      sourced: totalSourced,
+      connected,
+      interested,
+      interviewScheduled,
+      interviewAttended,
+      selected,
+      joined
+    },
     conversionRates: {
-      sourceToConnect: totalSourced ? Math.round((connected / totalSourced) * 100) : 0,
-      connectToLineup: connected ? Math.round((linedUp / connected) * 100) : 0,
-      lineupToAttend: linedUp ? Math.round((attended / linedUp) * 100) : 0,
-      attendToSelect: attended ? Math.round((selected / attended) * 100) : 0,
-      selectToJoin: selected ? Math.round((joined / selected) * 100) : 0,
+      sourcedToConnected: totalSourced ? Math.round((connected / totalSourced) * 100) : 0,
+      connectedToInterested: connected ? Math.round((interested / connected) * 100) : 0,
+      interestedToInterview: interested ? Math.round((interviewScheduled / interested) * 100) : 0,
+      interviewToAttended: interviewScheduled ? Math.round((interviewAttended / interviewScheduled) * 100) : 0,
+      attendedToSelected: interviewAttended ? Math.round((selected / interviewAttended) * 100) : 0,
+      selectedToJoined: selected ? Math.round((joined / selected) * 100) : 0,
       overallConversion: totalSourced ? Math.round((joined / totalSourced) * 100) : 0
     },
-    interviewsToday: interviews.filter((i) => i.timeBucket === 'Today').length,
-    interviewsTomorrow: interviews.filter((i) => i.timeBucket === 'Tomorrow').length,
-    interviewsThisWeek: interviews.filter((i) => i.timeBucket === 'This Week').length,
-    overdueFollowups: interviews.filter((i) => i.timeBucket === 'Overdue').length,
+    quickStats: {
+      totalCandidates: totalSourced,
+      callsToday: connected,
+      interviewsToday: interviews.filter((i) => i?.timeBucket === 'Today').length,
+      interviewsThisWeek: interviews.filter((i) => i?.timeBucket === 'This Week').length,
+      selectionsThisMonth: selected,
+      joiningsThisMonth: joined,
+      totalRevenue,
+      pendingInvoiceAmount: pendingRevenue,
+      receivedRevenue
+    },
+    leaderboard,
+    dropReasons,
+    clientBreakdown,
+    sourceBreakdown,
+
+    // Backward-compatible properties
+    totalSourced,
+    connected,
+    linedUp: interviewScheduled,
+    attended: interviewAttended,
+    selected,
+    joined,
+    interviewsToday: interviews.filter((i) => i?.timeBucket === 'Today').length,
+    interviewsTomorrow: interviews.filter((i) => i?.timeBucket === 'Tomorrow').length,
+    interviewsThisWeek: interviews.filter((i) => i?.timeBucket === 'This Week').length,
+    overdueFollowups: interviews.filter((i) => i?.timeBucket === 'Overdue').length,
     pendingLeads: 0,
     totalRevenue,
     pendingRevenue,

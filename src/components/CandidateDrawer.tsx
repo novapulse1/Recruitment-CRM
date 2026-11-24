@@ -35,7 +35,7 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
   candidateId,
   onClose,
   currentUser,
-  dropdowns,
+  dropdowns = {},
   onCandidateUpdated
 }) => {
   const [candidate, setCandidate] = useState<Candidate | null>(null);
@@ -63,11 +63,11 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
       setLoading(true);
       setConflictError(null);
       const res = await api.getCandidate(id);
-      setCandidate(res.candidate);
-      setFormData(res.candidate);
-      setAudits(res.audits || []);
-      setInterviews(res.interviews || []);
-      setReschedule(res.reschedule || null);
+      setCandidate(res?.candidate || null);
+      setFormData(res?.candidate || {});
+      setAudits(res?.audits || []);
+      setInterviews(res?.interviews || []);
+      setReschedule(res?.reschedule || null);
     } catch (e: any) {
       alert('Failed to load candidate: ' + e.message);
     } finally {
@@ -165,14 +165,14 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
   // Quick Action Buttons
   const cleanMobile = String(candidate?.['Mobile Number'] || '').replace(/\D/g, '').slice(-10);
 
-  const callingDispositions = dropdowns['Calling Disposition'] || [];
-  const allSubDispositions = dropdowns['Sub-Disposition'] || [];
-  const filteredSubDispositions = allSubDispositions.filter((s) =>
+  const callingDispositions = dropdowns?.['Calling Disposition'] || [];
+  const allSubDispositions = dropdowns?.['Sub-Disposition'] || [];
+  const filteredSubDispositions = (allSubDispositions || []).filter((s) =>
     formData['Calling Disposition'] ? s['Parent Disposition'] === formData['Calling Disposition'] : true
   );
-  const interviewStatuses = dropdowns['Interview Status'] || [];
-  const selectionStatuses = dropdowns['Selection Status'] || [];
-  const joiningStatuses = dropdowns['Joining Status'] || [];
+  const interviewStatuses = dropdowns?.['Interview Status'] || [];
+  const selectionStatuses = dropdowns?.['Selection Status'] || [];
+  const joiningStatuses = dropdowns?.['Joining Status'] || [];
 
   return (
     <div className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-2xl bg-card border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
@@ -651,13 +651,13 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
                   <History className="h-4 w-4" /> Activity & Audit Log
                 </h4>
 
-                {audits.length === 0 ? (
+                {!audits || audits.length === 0 ? (
                   <div className="py-12 text-center text-muted-foreground text-xs">
                     No logged changes recorded for this candidate yet.
                   </div>
                 ) : (
                   <div className="relative pl-6 space-y-4 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-border">
-                    {audits.map((a, i) => (
+                    {(audits || []).map((a, i) => (
                       <div key={i} className="relative">
                         <div className="absolute -left-6 top-1 h-3 w-3 rounded-full bg-primary ring-4 ring-card" />
                         <div className="text-xs">

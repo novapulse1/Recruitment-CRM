@@ -29,8 +29,8 @@ interface LeadApprovalsViewProps {
 }
 
 export const LeadApprovalsView: React.FC<LeadApprovalsViewProps> = ({
-  leads,
-  hrs,
+  leads = [],
+  hrs = [],
   currentUser,
   onRefresh
 }) => {
@@ -44,7 +44,7 @@ export const LeadApprovalsView: React.FC<LeadApprovalsViewProps> = ({
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [actionType, setActionType] = useState<'APPROVE' | 'REJECT' | 'MERGE' | null>(null);
 
-  const pendingLeads = leads.filter((l) => (l.Status || 'Pending') === 'Pending');
+  const pendingLeads = (leads || []).filter((l) => (l.Status || 'Pending') === 'Pending');
 
   const handleSelectAll = () => {
     if (selectedLeadIds.length === pendingLeads.length) {
@@ -63,7 +63,7 @@ export const LeadApprovalsView: React.FC<LeadApprovalsViewProps> = ({
     setActionType(type);
     setAdminNote('');
     setTargetCandidateId(lead['Duplicate Of'] || '');
-    const matchedHR = hrs.find((h) => h['HR Name'] === lead['Submitted By HR']);
+    const matchedHR = (hrs || []).find((h) => h['HR Name'] === lead['Submitted By HR']);
     setTargetHR(matchedHR ? { name: matchedHR['HR Name'], email: matchedHR['HR Email'] } : null);
   };
 
@@ -298,12 +298,12 @@ export const LeadApprovalsView: React.FC<LeadApprovalsViewProps> = ({
                 <select
                   value={targetHR ? targetHR.name : ''}
                   onChange={(e) => {
-                    const found = hrs.find((h) => h['HR Name'] === e.target.value);
+                    const found = (hrs || []).find((h) => h['HR Name'] === e.target.value);
                     setTargetHR(found ? { name: found['HR Name'], email: found['HR Email'] } : null);
                   }}
                   className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none"
                 >
-                  {hrs.map((h) => (
+                  {(hrs || []).map((h) => (
                     <option key={h['HR ID']} value={h['HR Name']}>
                       {h['HR Name']} ({h['HR Email']})
                     </option>

@@ -470,7 +470,14 @@ export const RBACManagementView: React.FC<RBACManagementViewProps> = ({ currentU
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredUsers.map((userItem) => {
+                {filteredUsers.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-12 text-center text-gray-500">
+                      No users found matching "{searchQuery}".
+                    </td>
+                  </tr>
+                ) : (
+                  filteredUsers.map((userItem) => {
                   const isRootSuperAdmin = userItem.email === 'novapulse739@gmail.com';
                   const canManage = canManageTarget(userItem);
                   const canModifyRoles = currentUser.role === 'SUPER_ADMIN';
@@ -604,7 +611,8 @@ export const RBACManagementView: React.FC<RBACManagementViewProps> = ({ currentU
                       </td>
                     </tr>
                   );
-                })}
+                })
+              )}
               </tbody>
             </table>
           </div>

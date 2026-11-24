@@ -49,13 +49,18 @@ interface DashboardViewProps {
 export const DashboardView: React.FC<DashboardViewProps> = ({
   metrics,
   currentUser,
-  candidates,
-  interviews,
-  joinings,
-  clients,
+  candidates = [],
+  interviews = [],
+  joinings = [],
+  clients = [],
   onRefresh,
   onSelectCandidate
 }) => {
+  const safeCandidates = candidates || [];
+  const safeInterviews = interviews || [];
+  const safeJoinings = joinings || [];
+  const safeClients = clients || [];
+
   const [selectedMonth, setSelectedMonth] = useState('Nov-2026');
   const [filterHR, setFilterHR] = useState('');
   const [filterClient, setFilterClient] = useState('');
@@ -63,27 +68,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Extract unique recruiters and clients for dashboard filtering
   const hrNames = useMemo(() => {
     const set = new Set<string>();
-    candidates.forEach((c) => { if (c['Assigned HR']) set.add(c['Assigned HR']); });
+    safeCandidates.forEach((c) => { if (c && c['Assigned HR']) set.add(c['Assigned HR']); });
     return Array.from(set).sort();
-  }, [candidates]);
+  }, [safeCandidates]);
 
   const clientNames = useMemo(() => {
     const set = new Set<string>();
-    clients.forEach((c) => { if (c.clientName) set.add(c.clientName); });
+    safeClients.forEach((c) => { if (c && c.clientName) set.add(c.clientName); });
     return Array.from(set).sort();
-  }, [clients]);
+  }, [safeClients]);
 
   // Filter candidates based on dashboard selections
   const filteredCandidates = useMemo(() => {
-    return candidates.filter((c) => {
-      if (currentUser.role === 'HR' && String(c['HR Email'] || '').toLowerCase() !== currentUser.email.toLowerCase()) {
+    return safeCandidates.filter((c) => {
+      if (!c) return false;
+      if (currentUser?.role === 'HR' && String(c['HR Email'] || '').toLowerCase() !== currentUser?.email?.toLowerCase()) {
         return false;
       }
       if (filterHR && c['Assigned HR'] !== filterHR) return false;
       if (filterClient && c['Client Name'] !== filterClient) return false;
       return true;
     });
-  }, [candidates, currentUser, filterHR, filterClient]);
+  }, [safeCandidates, currentUser, filterHR, filterClient]);
 
   // Dynamic funnel calculation based on active filter
   const funnel = useMemo(() => {
@@ -120,13 +126,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Commercial Revenue Pipeline Projections
   const commercialHealth = useMemo(() => {
-    const totalInvoiced = joinings.reduce((acc, j) => acc + (Number(j.invoiceAmount) || 0), 0);
-    const paidRevenue = joinings.filter((j) => j.invoiceStatus === 'Paid').reduce((acc, j) => acc + (Number(j.invoiceAmount) || 0), 0);
-    const pendingDue = joinings.filter((j) => j.invoiceStatus !== 'Paid').reduce((acc, j) => acc + (Number(j.invoiceAmount) || 0), 0);
+    const totalInvoiced = safeJoinings.reduce((acc, j) => acc + (Number(j?.invoiceAmount) || 0), 0);
+    const paidRevenue = safeJoinings.filter((j) => j?.invoiceStatus === 'Paid').reduce((acc, j) => acc + (Number(j?.invoiceAmount) || 0), 0);
+    const pendingDue = safeJoinings.filter((j) => j?.invoiceStatus !== 'Paid').reduce((acc, j) => acc + (Number(j?.invoiceAmount) || 0), 0);
 
     // Projected revenue from candidates who are currently Selected but not yet in Joining Tracker
     const selectedCandidates = filteredCandidates.filter(
-      (c) => c['Selection Status'] === 'Selected' && c['Joining Status'] !== 'Joined'
+      (c) => c && c['Selection Status'] === 'Selected' && c['Joining Status'] !== 'Joined'
     );
     const projectedSelected = selectedCandidates.length * 25000; // estimated avg fee
 
@@ -136,21 +142,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       pendingDue,
       projectedSelected,
       totalPipelinePotential: totalInvoiced + projectedSelected,
-      dueSoonCount: joinings.filter((j) => j.invoiceDueSoon).length
+      dueSoonCount: safeJoinings.filter((j) => j?.invoiceDueSoon).length
     };
-  }, [joinings, filteredCandidates]);
+  }, [safeJoinings, filteredCandidates]);
 
   // Interview Attendance & Reschedule Health
   const interviewMetrics = useMemo(() => {
-    const totalLineups = interviews.length;
-    const attended = interviews.filter((i) => i.interviewStatus === 'Attended').length;
-    const pending = interviews.filter((i) => i.interviewStatus === 'Pending' || !i.interviewStatus).length;
-    const dropped = interviews.filter((i) => i.interviewStatus === 'Drop After Lineup').length;
-    const highRescheduled = interviews.filter((i) => (i.rescheduleCount || 1) >= 2);
+    const totalLineups = safeInterviews.length;
+    const attended = safeInterviews.filter((i) => i?.interviewStatus === 'Attended').length;
+    const pending = safeInterviews.filter((i) => i && (i.interviewStatus === 'Pending' || !i.interviewStatus)).length;
+    const dropped = safeInterviews.filter((i) => i?.interviewStatus === 'Drop After Lineup').length;
+    const highRescheduled = safeInterviews.filter((i) => (i?.rescheduleCount || 1) >= 2);
     const attendanceRate = totalLineups ? Math.round((attended / totalLineups) * 100) : 0;
 
     return { totalLineups, attended, pending, dropped, highRescheduled, attendanceRate };
-  }, [interviews]);
+  }, [safeInterviews]);
 
   // Industry Diversity Breakdown
   const industryBreakdown = useMemo(() => {
@@ -369,36 +375,44 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <span className="text-xs text-muted-foreground">{filteredCandidates.length} Candidates</span>
           </div>
 
-          <div className="h-56 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={stageDistribution}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={75}
-                  paddingAngle={4}
-                  dataKey="value"
-                >
-                  {stageDistribution.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="flex flex-wrap gap-2 text-[10px] justify-center">
-            {stageDistribution.map((item, index) => (
-              <div key={item.name} className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-muted">
-                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
-                <span className="text-foreground font-semibold">{item.name}:</span>
-                <span className="text-muted-foreground font-bold">{item.value}</span>
+          {stageDistribution.length === 0 ? (
+            <div className="h-56 flex items-center justify-center text-xs text-muted-foreground">
+              No candidates in pipeline yet.
+            </div>
+          ) : (
+            <>
+              <div className="h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={stageDistribution}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={75}
+                      paddingAngle={4}
+                      dataKey="value"
+                    >
+                      {stageDistribution.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
               </div>
-            ))}
-          </div>
+
+              <div className="flex flex-wrap gap-2 text-[10px] justify-center">
+                {stageDistribution.map((item, index) => (
+                  <div key={item.name} className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-muted">
+                    <div className="h-2 w-2 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+                    <span className="text-foreground font-semibold">{item.name}:</span>
+                    <span className="text-muted-foreground font-bold">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Interview Health & High Reschedule Warning Card */}
@@ -507,10 +521,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <p className="text-xs text-muted-foreground mt-0.5">Logged sub-disposition root causes</p>
 
             <div className="mt-4 space-y-2.5">
-              {metrics?.dropReasons.length === 0 ? (
+              {(!metrics?.dropReasons || metrics.dropReasons.length === 0) ? (
                 <div className="py-8 text-center text-muted-foreground text-xs">No drop reasons logged yet.</div>
               ) : (
-                metrics?.dropReasons.map((dr, idx) => (
+                (metrics?.dropReasons || []).map((dr, idx) => (
                   <div key={idx} className="flex items-center justify-between text-xs">
                     <span className="text-foreground truncate max-w-[170px]">{dr.reason}</span>
                     <div className="flex items-center gap-2">
@@ -556,23 +570,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {metrics?.leaderboard.map((hr, idx) => (
-                    <tr key={hr.hrName} className="hover:bg-muted/40">
-                      <td className="py-2.5 font-semibold text-foreground flex items-center gap-2">
-                        <span className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">
-                          {idx + 1}
-                        </span>
-                        {hr.hrName}
-                      </td>
-                      <td className="py-2.5 text-center text-muted-foreground">{hr.sourced}</td>
-                      <td className="py-2.5 text-center text-muted-foreground">{hr.connected}</td>
-                      <td className="py-2.5 text-center text-muted-foreground">{hr.interviews}</td>
-                      <td className="py-2.5 text-center font-semibold text-foreground">{hr.selected}</td>
-                      <td className="py-2.5 text-right font-bold text-emerald-600 dark:text-emerald-400">
-                        {hr.joined}
+                  {(!metrics?.leaderboard || metrics.leaderboard.length === 0) ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-muted-foreground text-xs">
+                        No recruiter performance recorded yet.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    (metrics?.leaderboard || []).map((hr, idx) => (
+                      <tr key={hr?.hrName || idx} className="hover:bg-muted/40">
+                        <td className="py-2.5 font-semibold text-foreground flex items-center gap-2">
+                          <span className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">
+                            {idx + 1}
+                          </span>
+                          {hr?.hrName || 'Recruiter'}
+                        </td>
+                        <td className="py-2.5 text-center text-muted-foreground">{hr?.sourced || 0}</td>
+                        <td className="py-2.5 text-center text-muted-foreground">{hr?.connected || 0}</td>
+                        <td className="py-2.5 text-center text-muted-foreground">{hr?.interviews || 0}</td>
+                        <td className="py-2.5 text-center font-semibold text-foreground">{hr?.selected || 0}</td>
+                        <td className="py-2.5 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                          {hr?.joined || 0}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -589,20 +611,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             <div className="space-y-3">
-              {industryBreakdown.map((ib) => (
-                <div key={ib.industry} className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-foreground truncate max-w-[200px]">{ib.industry}</span>
-                  <div className="flex items-center gap-3">
-                    <div className="w-32 bg-muted rounded-full h-2 overflow-hidden">
-                      <div
-                        className="bg-primary h-2 rounded-full"
-                        style={{ width: `${Math.min(100, (ib.count / filteredCandidates.length) * 100)}%` }}
-                      />
+              {industryBreakdown.length === 0 ? (
+                <div className="py-8 text-center text-muted-foreground text-xs">No candidate industry data yet.</div>
+              ) : (
+                industryBreakdown.map((ib) => (
+                  <div key={ib.industry} className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-foreground truncate max-w-[200px]">{ib.industry}</span>
+                    <div className="flex items-center gap-3">
+                      <div className="w-32 bg-muted rounded-full h-2 overflow-hidden">
+                        <div
+                          className="bg-primary h-2 rounded-full"
+                          style={{ width: `${filteredCandidates.length ? Math.min(100, (ib.count / filteredCandidates.length) * 100) : 0}%` }}
+                        />
+                      </div>
+                      <span className="font-bold text-foreground w-6 text-right">{ib.count}</span>
                     </div>
-                    <span className="font-bold text-foreground w-6 text-right">{ib.count}</span>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>

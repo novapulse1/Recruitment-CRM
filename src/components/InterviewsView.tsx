@@ -24,7 +24,7 @@ interface InterviewsViewProps {
 }
 
 export const InterviewsView: React.FC<InterviewsViewProps> = ({
-  interviews,
+  interviews = [],
   currentUser,
   onSelectCandidate,
   onRefresh
@@ -32,7 +32,7 @@ export const InterviewsView: React.FC<InterviewsViewProps> = ({
   const [activeBucket, setActiveBucket] = useState<'All' | 'Today' | 'Tomorrow' | 'This Week' | 'Overdue'>('All');
   const [search, setSearch] = useState('');
 
-  const filtered = interviews.filter((item) => {
+  const filtered = (interviews || []).filter((item) => {
     if (activeBucket !== 'All' && item.timeBucket !== activeBucket) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -47,10 +47,10 @@ export const InterviewsView: React.FC<InterviewsViewProps> = ({
   });
 
   const bucketCounts = {
-    Today: interviews.filter((i) => i.timeBucket === 'Today').length,
-    Tomorrow: interviews.filter((i) => i.timeBucket === 'Tomorrow').length,
-    'This Week': interviews.filter((i) => i.timeBucket === 'This Week').length,
-    Overdue: interviews.filter((i) => i.timeBucket === 'Overdue').length
+    Today: (interviews || []).filter((i) => i.timeBucket === 'Today').length,
+    Tomorrow: (interviews || []).filter((i) => i.timeBucket === 'Tomorrow').length,
+    'This Week': (interviews || []).filter((i) => i.timeBucket === 'This Week').length,
+    Overdue: (interviews || []).filter((i) => i.timeBucket === 'Overdue').length
   };
 
   return (

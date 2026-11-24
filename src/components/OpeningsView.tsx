@@ -25,7 +25,7 @@ interface OpeningsViewProps {
 }
 
 export const OpeningsView: React.FC<OpeningsViewProps> = ({
-  openings,
+  openings = [],
   currentUser,
   onLineUpCandidate,
   onRefresh
@@ -37,7 +37,7 @@ export const OpeningsView: React.FC<OpeningsViewProps> = ({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editFormData, setEditFormData] = useState<Partial<Opening>>({});
 
-  const filtered = openings.filter((op) => {
+  const filtered = (openings || []).filter((op) => {
     if (filterStatus && String(op['Status']).toLowerCase() !== filterStatus.toLowerCase()) return false;
     if (filterCity && !op['Job Location (City)']?.toLowerCase().includes(filterCity.toLowerCase())) return false;
     if (search.trim()) {
@@ -138,8 +138,13 @@ export const OpeningsView: React.FC<OpeningsViewProps> = ({
       </div>
 
       {/* Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((op) => (
+      {filtered.length === 0 ? (
+        <div className="py-12 text-center text-muted-foreground text-xs bg-card rounded-xl border border-border">
+          No job openings found matching the criteria.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map((op) => (
           <div
             key={op['Opening ID']}
             className="p-5 rounded-2xl border border-border bg-card shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-4"
@@ -224,7 +229,8 @@ export const OpeningsView: React.FC<OpeningsViewProps> = ({
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      )}
 
       {/* Opening Details Modal */}
       {selectedOpening && (

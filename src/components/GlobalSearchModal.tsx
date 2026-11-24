@@ -12,7 +12,7 @@ interface GlobalSearchModalProps {
 export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   isOpen,
   onClose,
-  candidates,
+  candidates = [],
   onSelectCandidate
 }) => {
   const [query, setQuery] = useState('');
@@ -35,7 +35,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   if (!isOpen) return null;
 
   const filtered = query.trim()
-    ? candidates.filter((c) => {
+    ? (candidates || []).filter((c) => {
         const q = query.toLowerCase();
         return (
           c['Candidate ID']?.toLowerCase().includes(q) ||
@@ -46,7 +46,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
           c['Designation Applied']?.toLowerCase().includes(q)
         );
       }).slice(0, 10)
-    : candidates.slice(0, 8);
+    : (candidates || []).slice(0, 8);
 
   const handleSelect = (id: string) => {
     onSelectCandidate(id);

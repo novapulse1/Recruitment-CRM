@@ -25,7 +25,7 @@ interface JoiningsBillingViewProps {
 }
 
 export const JoiningsBillingView: React.FC<JoiningsBillingViewProps> = ({
-  joinings,
+  joinings = [],
   currentUser,
   onSelectCandidate,
   onRefresh
@@ -36,7 +36,7 @@ export const JoiningsBillingView: React.FC<JoiningsBillingViewProps> = ({
   const [editFormData, setEditFormData] = useState<Partial<JoiningRecord>>({});
   const [saving, setSaving] = useState(false);
 
-  const filtered = joinings.filter((j) => {
+  const filtered = (joinings || []).filter((j) => {
     if (filterInvoiceStatus && j.invoiceStatus !== filterInvoiceStatus) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -50,7 +50,7 @@ export const JoiningsBillingView: React.FC<JoiningsBillingViewProps> = ({
     return true;
   });
 
-  const dueSoonCount = joinings.filter((j) => j.invoiceDueSoon).length;
+  const dueSoonCount = (joinings || []).filter((j) => j.invoiceDueSoon).length;
 
   const handleOpenEdit = (j: JoiningRecord) => {
     setSelectedJoining(j);

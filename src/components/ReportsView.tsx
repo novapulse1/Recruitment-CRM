@@ -54,13 +54,19 @@ type ReportType =
 type ViewMode = 'visual' | 'table' | 'summary';
 
 export const ReportsView: React.FC<ReportsViewProps> = ({
-  candidates,
-  clients,
-  joinings,
-  interviews,
-  hrs,
+  candidates = [],
+  clients = [],
+  joinings = [],
+  interviews = [],
+  hrs = [],
   currentUser
 }) => {
+  const safeCandidates = candidates || [];
+  const safeClients = clients || [];
+  const safeJoinings = joinings || [];
+  const safeInterviews = interviews || [];
+  const safeHrs = hrs || [];
+
   const [activeReport, setActiveReport] = useState<ReportType>('interviews');
   const [viewMode, setViewMode] = useState<ViewMode>('visual');
   const [filterHR, setFilterHR] = useState('');
@@ -80,15 +86,15 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   // Filter HR / Client lists
   const hrNames = useMemo(() => {
     const set = new Set<string>();
-    candidates.forEach((c) => { if (c['Assigned HR']) set.add(c['Assigned HR']); });
+    safeCandidates.forEach((c) => { if (c && c['Assigned HR']) set.add(c['Assigned HR']); });
     return Array.from(set).sort();
-  }, [candidates]);
+  }, [safeCandidates]);
 
   const clientNames = useMemo(() => {
     const set = new Set<string>();
-    clients.forEach((c) => { if (c.clientName) set.add(c.clientName); });
+    safeClients.forEach((c) => { if (c && c.clientName) set.add(c.clientName); });
     return Array.from(set).sort();
-  }, [clients]);
+  }, [safeClients]);
 
   // Export current report dataset to CSV
   const exportToCSV = () => {
@@ -98,7 +104,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
     if (activeReport === 'interviews') {
       headers = ['Candidate ID', 'Candidate Name', 'Phone', 'Role', 'Client', 'Assigned HR', 'Interview Date', 'Status', 'Timeframe', 'Reschedule Count'];
-      rows = interviews.map((i) => [
+      rows = safeInterviews.map((i) => [
         i.candidateId,
         `"${i.candidateName}"`,
         `"${i.mobile}"`,
@@ -112,7 +118,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       ]);
     } else if (activeReport === 'joinings') {
       headers = ['Candidate ID', 'Candidate Name', 'Client', 'Designation', 'Joining Date', 'Annual CTC', 'Fee Type', 'Fee Value', 'Invoice Amount', 'Invoice Status', 'Days Completed', 'Replacement Ends'];
-      rows = joinings.map((j) => [
+      rows = safeJoinings.map((j) => [
         j.candidateId,
         `"${j.candidateName}"`,
         `"${j.clientName}"`,
@@ -129,16 +135,16 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     } else if (activeReport === 'recruiters') {
       headers = ['Recruiter Name', 'Total Candidates', 'Connected', 'Interviews', 'Selected', 'Joined', 'Conversion %'];
       rows = hrNames.map((name) => {
-        const hrCands = candidates.filter((c) => c['Assigned HR'] === name);
+        const hrCands = safeCandidates.filter((c) => c && c['Assigned HR'] === name);
         const sourced = hrCands.length;
-        const joined = hrCands.filter((c) => c['Joining Status'] === 'Joined').length;
-        const selected = hrCands.filter((c) => c['Selection Status'] === 'Selected').length;
+        const joined = hrCands.filter((c) => c && c['Joining Status'] === 'Joined').length;
+        const selected = hrCands.filter((c) => c && c['Selection Status'] === 'Selected').length;
         const conv = sourced ? Math.round((joined / sourced) * 100) : 0;
-        return [`"${name}"`, String(sourced), String(hrCands.filter((c) => c['Connect Status'] === 'Connect').length), String(hrCands.filter((c) => c['Interview Date']).length), String(selected), String(joined), `${conv}%`];
+        return [`"${name}"`, String(sourced), String(hrCands.filter((c) => c && c['Connect Status'] === 'Connect').length), String(hrCands.filter((c) => c && c['Interview Date']).length), String(selected), String(joined), `${conv}%`];
       });
     } else if (activeReport === 'clients') {
       headers = ['Client Name', 'Industry', 'Lined Up', 'Selected', 'Joined', 'Fee Model', 'Invoice Terms'];
-      rows = clients.map((cl) => [
+      rows = safeClients.map((cl) => [
         `"${cl.clientName}"`,
         `"${cl.industry}"`,
         String(cl.linedUpCount || 0),
@@ -150,7 +156,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     } else if (activeReport === 'dropoffs') {
       headers = ['Drop Reason (Sub-Disposition)', 'Count', 'Category'];
       const reasons: Record<string, number> = {};
-      candidates.forEach((c) => {
+      safeCandidates.forEach((c) => {
+        if (!c) return;
         if (c['Calling Disposition'] === 'Not Interested' || c['Calling Disposition'] === 'Not Connected' || c['Interview Status'] === 'Drop After Lineup') {
           const r = c['Sub-Disposition'] || c['Calling Disposition'] || 'Unknown';
           reasons[r] = (reasons[r] || 0) + 1;

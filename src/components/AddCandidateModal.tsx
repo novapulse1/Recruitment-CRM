@@ -29,8 +29,8 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({
   isOpen,
   onClose,
   currentUser,
-  candidates,
-  dropdowns,
+  candidates = [],
+  dropdowns = {},
   initialData,
   onCandidateAdded
 }) => {
@@ -76,7 +76,7 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({
       return;
     }
 
-    const match = candidates.find((c) => {
+    const match = (candidates || []).find((c) => {
       const cP = String(c['Mobile Number'] || '').replace(/\D/g, '').slice(-10);
       const cAlt = String(c['Alternate Mobile'] || '').replace(/\D/g, '').slice(-10);
       const cE = String(c['Email ID'] || '').trim().toLowerCase();
@@ -153,7 +153,7 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({
     }
   };
 
-  const industries = dropdowns['Industry'] || [];
+  const industries = dropdowns?.['Industry'] || [];
   const sources = ['Apna', 'Naukri', 'Indeed', 'LinkedIn', 'Referral', 'Walk-in', 'Direct Application', 'Vendor'];
 
   return (

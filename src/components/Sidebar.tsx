@@ -57,7 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   darkMode,
   setDarkMode,
-  counts,
+  counts = {},
   mobileOpen,
   setMobileOpen
 }) => {
@@ -75,25 +75,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'candidates',
       label: 'Candidates',
       icon: Users,
-      badge: counts.candidates !== undefined ? String(counts.candidates) : null
+      badge: counts?.candidates !== undefined ? String(counts.candidates) : null
     },
     {
       id: 'openings',
       label: 'Openings',
       icon: Briefcase,
-      badge: counts.openings !== undefined ? String(counts.openings) : null
+      badge: counts?.openings !== undefined ? String(counts.openings) : null
     },
     {
       id: 'clients',
       label: 'Clients',
       icon: Building2,
-      badge: counts.clients !== undefined ? String(counts.clients) : null
+      badge: counts?.clients !== undefined ? String(counts.clients) : null
     },
     {
       id: 'interviews',
       label: 'Interviews',
       icon: Calendar,
-      badge: counts.interviewsToday && counts.interviewsToday > 0 ? `${counts.interviewsToday} today` : null,
+      badge: counts?.interviewsToday && counts.interviewsToday > 0 ? `${counts.interviewsToday} today` : null,
       badgeColor: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
     },
     {
@@ -110,7 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'leads',
       label: 'Lead Approvals',
       icon: FileCheck2,
-      badge: counts.pendingLeads && counts.pendingLeads > 0 ? String(counts.pendingLeads) : null,
+      badge: counts?.pendingLeads && counts.pendingLeads > 0 ? String(counts.pendingLeads) : null,
       badgeColor: 'bg-primary text-primary-foreground'
     },
     {

@@ -328,4 +328,18 @@ export interface DashboardMetrics {
     source: string;
     count: number;
   }>;
+  totalSourced?: number;
+  connected?: number;
+  linedUp?: number;
+  attended?: number;
+  selected?: number;
+  joined?: number;
+  interviewsToday?: number;
+  interviewsTomorrow?: number;
+  interviewsThisWeek?: number;
+  overdueFollowups?: number;
+  pendingLeads?: number;
+  totalRevenue?: number;
+  pendingRevenue?: number;
+  activeGuarantees?: number;
 }

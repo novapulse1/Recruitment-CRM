@@ -24,7 +24,7 @@ interface ClientsViewProps {
 }
 
 export const ClientsView: React.FC<ClientsViewProps> = ({
-  clients,
+  clients = [],
   currentUser,
   onRefresh
 }) => {
@@ -33,7 +33,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [clientFormData, setClientFormData] = useState<Partial<Client>>({});
 
-  const filtered = clients.filter((cl) => {
+  const filtered = (clients || []).filter((cl) => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
@@ -126,8 +126,13 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       </div>
 
       {/* Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((cl) => (
+      {filtered.length === 0 ? (
+        <div className="py-12 text-center text-muted-foreground text-xs bg-card rounded-xl border border-border">
+          No clients found matching the search criteria.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map((cl) => (
           <div
             key={cl.clientId}
             className="p-5 rounded-2xl border border-border bg-card shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-4"
@@ -225,7 +230,8 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      )}
 
       {/* Detail Modal */}
       {selectedClient && (

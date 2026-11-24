@@ -36,9 +36,9 @@ interface CandidatesViewProps {
 }
 
 export const CandidatesView: React.FC<CandidatesViewProps> = ({
-  candidates,
+  candidates = [],
   currentUser,
-  dropdowns,
+  dropdowns = {},
   onSelectCandidate,
   onOpenAddModal,
   onRefresh,
@@ -73,19 +73,19 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
 
   // Filtered dataset
   const filteredCandidates = useMemo(() => {
-    return candidates.filter((c) => {
+    return (candidates || []).filter((c) => {
       // Role enforcement
-      if (currentUser.role === 'FINANCE') {
+      if (currentUser?.role === 'FINANCE') {
         return false;
       }
-      if (currentUser.role === 'HR_RECRUITER' || currentUser.role === 'HR') {
-        if (String(c['HR Email'] || '').toLowerCase() !== currentUser.email.toLowerCase()) {
+      if (currentUser?.role === 'HR_RECRUITER' || currentUser?.role === 'HR') {
+        if (String(c['HR Email'] || '').toLowerCase() !== (currentUser?.email || '').toLowerCase()) {
           return false;
         }
-      } else if (currentUser.role === 'RECRUITMENT_MANAGER') {
-        const team = currentUser.teamRecruiterEmails || ['hr@novapulse.co.in', 'gjigyasa11@gmail.com'];
+      } else if (currentUser?.role === 'RECRUITMENT_MANAGER') {
+        const team = currentUser?.teamRecruiterEmails || ['hr@novapulse.co.in', 'gjigyasa11@gmail.com'];
         const candHREmail = String(c['HR Email'] || '').toLowerCase();
-        if (!team.includes(candHREmail) && candHREmail !== currentUser.email.toLowerCase()) {
+        if (!team.includes(candHREmail) && candHREmail !== (currentUser?.email || '').toLowerCase()) {
           return false;
         }
       }
@@ -116,7 +116,7 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
   // Clients & HRs lists for filter dropdowns
   const uniqueClients = useMemo(() => {
     const set = new Set<string>();
-    candidates.forEach((c) => {
+    (candidates || []).forEach((c) => {
       if (c['Client Name']) set.add(c['Client Name']);
     });
     return Array.from(set).sort();
@@ -124,7 +124,7 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
 
   const uniqueHRs = useMemo(() => {
     const set = new Set<string>();
-    candidates.forEach((c) => {
+    (candidates || []).forEach((c) => {
       if (c['Assigned HR']) set.add(c['Assigned HR']);
     });
     return Array.from(set).sort();

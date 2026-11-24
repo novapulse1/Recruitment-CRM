@@ -202,8 +202,15 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {hrs.map((hr) => (
-                  <tr key={hr['HR ID']} className="hover:bg-muted/40">
+                {hrs.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="p-8 text-center text-muted-foreground">
+                      No HR recruiters registered yet.
+                    </td>
+                  </tr>
+                ) : (
+                  hrs.map((hr) => (
+                    <tr key={hr['HR ID']} className="hover:bg-muted/40">
                     <td className="p-3 font-mono font-bold text-foreground">{hr['HR ID']}</td>
                     <td className="p-3 font-semibold text-foreground">{hr['HR Name']}</td>
                     <td className="p-3 text-muted-foreground">{hr['HR Email']}</td>
@@ -234,7 +241,8 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                       </button>
                     </td>
                   </tr>
-                ))}
+                ))
+              )}
               </tbody>
             </table>
           </div>
@@ -268,8 +276,15 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {dropdowns.map((opt, i) => (
-                  <tr key={i} className="hover:bg-muted/40">
+                {dropdowns.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                      No dropdown options configured yet.
+                    </td>
+                  </tr>
+                ) : (
+                  dropdowns.map((opt, i) => (
+                    <tr key={i} className="hover:bg-muted/40">
                     <td className="p-3 font-semibold text-foreground">{opt.List}</td>
                     <td className="p-3 font-bold text-primary">{opt.Option}</td>
                     <td className="p-3 text-muted-foreground">{opt['Parent Disposition'] || '-'}</td>
@@ -306,7 +321,8 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                       </button>
                     </td>
                   </tr>
-                ))}
+                ))
+              )}
               </tbody>
             </table>
           </div>
