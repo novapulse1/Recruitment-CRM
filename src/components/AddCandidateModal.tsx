@@ -15,6 +15,7 @@ import type { Candidate, Client, DropdownOption, Opening, User } from '../types'
 import { PIPELINE_STAGES, type PipelineStage } from '../config';
 import { api } from '../services/api';
 import { can } from '../services/permissions';
+import { normalizePhoneNumber } from '../utils/formatters';
 
 interface AddCandidateModalProps {
   isOpen: boolean;
@@ -93,8 +94,8 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({
 
   // Real-time live duplicate check
   const checkDuplicate = (phone: string, altPhone: string, email: string) => {
-    const cleanP = phone ? phone.replace(/\D/g, '').slice(-10) : '';
-    const cleanAlt = altPhone ? altPhone.replace(/\D/g, '').slice(-10) : '';
+    const cleanP = normalizePhoneNumber(phone);
+    const cleanAlt = normalizePhoneNumber(altPhone);
     const cleanE = email ? email.trim().toLowerCase() : '';
 
     if (!cleanP && !cleanAlt && !cleanE) {
@@ -104,8 +105,8 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({
     }
 
     const match = (candidates || []).find((c) => {
-      const cP = String(c['Mobile Number'] || '').replace(/\D/g, '').slice(-10);
-      const cAlt = String(c['Alternate Mobile'] || '').replace(/\D/g, '').slice(-10);
+      const cP = normalizePhoneNumber(c['Mobile Number']);
+      const cAlt = normalizePhoneNumber(c['Alternate Mobile']);
       const cE = String(c['Email ID'] || '').trim().toLowerCase();
 
       if (cleanP && (cleanP === cP || cleanP === cAlt)) {

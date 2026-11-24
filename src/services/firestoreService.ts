@@ -212,6 +212,21 @@ export async function updateCandidateInFirestore(
   }
 
   const existing = existingSnap.data() as Candidate;
+
+  // Check if any field actually changed before bumping version or updating timestamp
+  let hasRealChange = false;
+  for (const key of Object.keys(updates)) {
+    if (key.startsWith('_') || key === 'Last Updated' || key === 'Last Updated By' || key === 'Record Version') continue;
+    if (String(updates[key] ?? '') !== String((existing as any)[key] ?? '')) {
+      hasRealChange = true;
+      break;
+    }
+  }
+
+  if (!hasRealChange) {
+    return existing;
+  }
+
   const nowStr = new Date().toLocaleString('en-GB');
 
   const merged: Candidate = {

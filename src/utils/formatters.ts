@@ -164,6 +164,22 @@ export function getReplacementMetrics(joiningDateStr: string | null | undefined,
 }
 
 /**
+ * Normalizes phone numbers: strips +91, 0, spaces, hyphens, brackets, non-digits.
+ * Returns clean 10-digit phone string for duplicate checks and storage.
+ */
+export function normalizePhoneNumber(phone: string | null | undefined): string {
+  if (!phone) return '';
+  let cleaned = String(phone).replace(/\D/g, '');
+  if (cleaned.length === 12 && cleaned.startsWith('91')) {
+    cleaned = cleaned.slice(2);
+  }
+  if (cleaned.length === 11 && cleaned.startsWith('0')) {
+    cleaned = cleaned.slice(1);
+  }
+  return cleaned.slice(-10);
+}
+
+/**
  * Calculates interview time bucket using Asia/Kolkata (IST).
  */
 export function calculateInterviewTimeBucket(

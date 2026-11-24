@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Users,
   Search,
@@ -116,6 +116,23 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
       return true;
     });
   }, [candidates, currentUser, searchQuery, filterClient, filterHR, filterDisposition, filterStage]);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, filterClient, filterHR, filterDisposition, filterStage]);
+
+  const totalCandidates = filteredCandidates.length;
+  const totalPages = Math.max(1, Math.ceil(totalCandidates / pageSize));
+  const validCurrentPage = Math.min(currentPage, totalPages);
+
+  const paginatedCandidates = useMemo(() => {
+    const startIndex = (validCurrentPage - 1) * pageSize;
+    return filteredCandidates.slice(startIndex, startIndex + pageSize);
+  }, [filteredCandidates, validCurrentPage, pageSize]);
 
   const isAdmin = currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN';
 
@@ -479,7 +496,7 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  filteredCandidates.map((c) => {
+                  paginatedCandidates.map((c) => {
                     const isSelected = selectedIds.includes(c['Candidate ID']);
                     return (
                       <tr
@@ -577,6 +594,59 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
               </tbody>
             </table>
           </div>
+
+          {/* Pagination Controls */}
+          {totalCandidates > 0 && (
+            <div className="p-3 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs bg-card">
+              <div className="text-muted-foreground">
+                Showing <strong className="text-foreground">{(validCurrentPage - 1) * pageSize + 1}</strong> to{' '}
+                <strong className="text-foreground">{Math.min(validCurrentPage * pageSize, totalCandidates)}</strong> of{' '}
+                <strong className="text-foreground">{totalCandidates}</strong> candidates
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 mr-2">
+                  <span className="text-muted-foreground text-[11px]">Rows per page:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="px-2 py-1 rounded border border-border bg-background text-xs font-semibold text-foreground outline-none"
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={validCurrentPage <= 1}
+                  className="px-2.5 py-1 rounded border border-border text-foreground font-medium hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+
+                <div className="flex items-center gap-1 font-semibold text-xs">
+                  <span className="px-2 py-1 rounded bg-primary/10 text-primary font-bold">
+                    {validCurrentPage}
+                  </span>
+                  <span className="text-muted-foreground">of</span>
+                  <span className="text-muted-foreground">{totalPages}</span>
+                </div>
+
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={validCurrentPage >= totalPages}
+                  className="px-2.5 py-1 rounded border border-border text-foreground font-medium hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
