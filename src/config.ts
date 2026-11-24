@@ -274,17 +274,137 @@ export const HEADERS = {
 };
 
 export const PIPELINE_STAGES = [
-  'Sourced',
-  'Connected',
+  'Unassigned',
+  'Assigned – Not Called',
   'Interested',
+  'Callback',
+  'Not Reachable',
+  'Not Interested / Closed',
   'Interview Scheduled',
   'Interview Attended',
-  'Interview Rescheduled',
-  'Selected',
+  'Interview No Show',
+  'Selected – Joining Pending',
+  'Joined',
   'On Hold',
   'Rejected',
-  'Joined',
-  'Dropped / Not Joined'
+  'Dropped / Not Joined',
+  'DUPLICATE HOLD'
 ] as const;
 
 export type PipelineStage = typeof PIPELINE_STAGES[number];
+
+export interface StageDefinition {
+  id: PipelineStage;
+  label: string;
+  category: 'sourcing' | 'contact' | 'interview' | 'offer' | 'joined' | 'drop' | 'hold';
+  color: string;
+  badgeClass: string;
+}
+
+export const STAGE_DEFINITIONS: Record<PipelineStage, StageDefinition> = {
+  'Unassigned': {
+    id: 'Unassigned',
+    label: 'Unassigned',
+    category: 'sourcing',
+    color: '#64748b',
+    badgeClass: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+  },
+  'Assigned – Not Called': {
+    id: 'Assigned – Not Called',
+    label: 'Assigned – Not Called',
+    category: 'sourcing',
+    color: '#3b82f6',
+    badgeClass: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-blue-300 dark:border-blue-800'
+  },
+  'Interested': {
+    id: 'Interested',
+    label: 'Interested',
+    category: 'contact',
+    color: '#06b6d4',
+    badgeClass: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300 border-cyan-300 dark:border-cyan-800'
+  },
+  'Callback': {
+    id: 'Callback',
+    label: 'Callback',
+    category: 'contact',
+    color: '#f59e0b',
+    badgeClass: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+  },
+  'Not Reachable': {
+    id: 'Not Reachable',
+    label: 'Not Reachable',
+    category: 'contact',
+    color: '#ea580c',
+    badgeClass: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300 border-orange-300 dark:border-orange-800'
+  },
+  'Not Interested / Closed': {
+    id: 'Not Interested / Closed',
+    label: 'Not Interested / Closed',
+    category: 'drop',
+    color: '#ef4444',
+    badgeClass: 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+  },
+  'Interview Scheduled': {
+    id: 'Interview Scheduled',
+    label: 'Interview Scheduled',
+    category: 'interview',
+    color: '#8b5cf6',
+    badgeClass: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border-purple-300 dark:border-purple-800'
+  },
+  'Interview Attended': {
+    id: 'Interview Attended',
+    label: 'Interview Attended',
+    category: 'interview',
+    color: '#6366f1',
+    badgeClass: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800'
+  },
+  'Interview No Show': {
+    id: 'Interview No Show',
+    label: 'Interview No Show',
+    category: 'drop',
+    color: '#dc2626',
+    badgeClass: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-300 dark:border-red-800'
+  },
+  'Selected – Joining Pending': {
+    id: 'Selected – Joining Pending',
+    label: 'Selected – Joining Pending',
+    category: 'offer',
+    color: '#10b981',
+    badgeClass: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+  },
+  'Joined': {
+    id: 'Joined',
+    label: 'Joined',
+    category: 'joined',
+    color: '#059669',
+    badgeClass: 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300 border-teal-300 dark:border-teal-800'
+  },
+  'On Hold': {
+    id: 'On Hold',
+    label: 'On Hold',
+    category: 'hold',
+    color: '#d97706',
+    badgeClass: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+  },
+  'Rejected': {
+    id: 'Rejected',
+    label: 'Rejected',
+    category: 'drop',
+    color: '#e11d48',
+    badgeClass: 'bg-pink-100 text-pink-800 dark:bg-pink-900/40 dark:text-pink-300 border-pink-300 dark:border-pink-800'
+  },
+  'Dropped / Not Joined': {
+    id: 'Dropped / Not Joined',
+    label: 'Dropped / Not Joined',
+    category: 'drop',
+    color: '#991b1b',
+    badgeClass: 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+  },
+  'DUPLICATE HOLD': {
+    id: 'DUPLICATE HOLD',
+    label: 'DUPLICATE HOLD',
+    category: 'hold',
+    color: '#b45309',
+    badgeClass: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300 border-yellow-300 dark:border-yellow-800'
+  }
+};

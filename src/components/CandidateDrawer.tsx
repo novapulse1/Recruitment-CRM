@@ -20,7 +20,8 @@ import {
   IndianRupee,
   RefreshCw
 } from 'lucide-react';
-import type { Candidate, DropdownOption, User as AuthUser, AuditLogEntry } from '../types';
+import type { Candidate, Client, DropdownOption, Opening, User as AuthUser, AuditLogEntry } from '../types';
+import { PIPELINE_STAGES, type PipelineStage } from '../config';
 import { api } from '../services/api';
 
 interface CandidateDrawerProps {
@@ -28,6 +29,8 @@ interface CandidateDrawerProps {
   onClose: () => void;
   currentUser: AuthUser;
   dropdowns: Record<string, DropdownOption[]>;
+  clients?: Client[];
+  openings?: Opening[];
   onCandidateUpdated: (updated: Candidate) => void;
 }
 
@@ -36,6 +39,8 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
   onClose,
   currentUser,
   dropdowns = {},
+  clients = [],
+  openings = [],
   onCandidateUpdated
 }) => {
   const [candidate, setCandidate] = useState<Candidate | null>(null);
@@ -57,6 +62,23 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
     }
     loadCandidateData(candidateId);
   }, [candidateId]);
+
+  // Keyboard Escape listener and scroll lock
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    if (candidateId) {
+      window.addEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'unset';
+    };
+  }, [candidateId, onClose]);
 
   const loadCandidateData = async (id: string) => {
     try {
@@ -87,7 +109,7 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
     'Designation Applied', 'Current Location', 'Experience', 'Current Salary',
     'Expected Salary', 'Notice Period', 'Source', 'Client Name', 'Industry',
     'Calling Disposition', 'Sub-Disposition', 'Interview Status', 'Interview Date',
-    'Selection Status', 'Joining Status', 'Joining Date', 'Remarks'
+    'Selection Status', 'Joining Status', 'Joining Date', 'Remarks', 'Pipeline Stage'
   ];
 
   const isFieldEditable = (fieldName: string) => {
@@ -98,12 +120,32 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
 
   const handleFieldChange = (field: string, value: string) => {
     setFormData((prev) => {
-      const next = { ...prev, [field]: value };
+      let sanitizedValue = value;
+      if (field === 'Mobile Number' || field === 'Alternate Mobile') {
+        sanitizedValue = value.replace(/\D/g, '').slice(0, 10);
+      }
+
+      const next = { ...prev, [field]: sanitizedValue };
+
+      // Auto-transition: Assigning an HR moves stage from Unassigned to Assigned – Not Called
+      if (field === 'Assigned HR' && sanitizedValue) {
+        if (!prev['Pipeline Stage'] || prev['Pipeline Stage'] === 'Unassigned') {
+          next['Pipeline Stage'] = 'Assigned – Not Called';
+        }
+      }
+
+      // If client name selected, match clientId from clients master
+      if (field === 'Client Name') {
+        const matchedClient = clients.find((c) => c.clientName === sanitizedValue);
+        if (matchedClient) {
+          next.clientId = matchedClient.clientId;
+        }
+      }
 
       // Dynamic sub-disposition logic: selecting sub-disp auto-fills Call Status
       if (field === 'Sub-Disposition') {
         const subList = dropdowns['Sub-Disposition'] || [];
-        const match = subList.find((s) => s.Option === value);
+        const match = subList.find((s) => s.Option === sanitizedValue);
         if (match && match['Call Status']) {
           next['Call Status'] = match['Call Status'];
         }
@@ -112,7 +154,7 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
       // If calling disposition changed and sub-disp no longer matches parent, clear sub-disp
       if (field === 'Calling Disposition') {
         const subList = dropdowns['Sub-Disposition'] || [];
-        const validSubs = subList.filter((s) => s['Parent Disposition'] === value);
+        const validSubs = subList.filter((s) => s['Parent Disposition'] === sanitizedValue);
         if (validSubs.length > 0 && !validSubs.some((s) => s.Option === prev['Sub-Disposition'])) {
           next['Sub-Disposition'] = validSubs[0].Option;
           if (validSubs[0]['Call Status']) next['Call Status'] = validSubs[0]['Call Status'];
@@ -128,6 +170,17 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
     try {
       setSaving(true);
       setConflictError(null);
+
+      // Validation: Interview Scheduled requires Interview Date
+      const targetStage = formData['Pipeline Stage'] || candidate['Pipeline Stage'];
+      const interviewDate = formData['Interview Date'] !== undefined ? formData['Interview Date'] : candidate['Interview Date'];
+      if (targetStage === 'Interview Scheduled') {
+        if (!interviewDate || interviewDate.trim() === '-' || interviewDate.trim() === '') {
+          alert('Interview Date is required when candidate is in "Interview Scheduled" stage.');
+          setSaving(false);
+          return;
+        }
+      }
 
       // Compute patch diff
       const patch: Partial<Candidate> = {};
@@ -150,7 +203,10 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
 
       // Reload fresh candidate
       await loadCandidateData(candidate['Candidate ID']);
-      onCandidateUpdated(res.updatedCandidate);
+      const updated = res.updatedCandidate || res.candidate;
+      if (updated) {
+        onCandidateUpdated(updated);
+      }
     } catch (err: any) {
       if (err.statusCode === 409 || err.message?.includes('someone else')) {
         setConflictError('This record was updated by someone else — reload to get the latest version.');
@@ -175,25 +231,40 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
   const joiningStatuses = dropdowns?.['Joining Status'] || [];
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-2xl bg-card border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
-      {/* Top Header */}
-      <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-muted/20">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold text-foreground">
-              {candidate ? candidate['Candidate Name'] : 'Candidate Profile'}
-            </h2>
-            {candidate && (
-              <span className="text-xs px-2.5 py-0.5 rounded-md bg-muted text-muted-foreground font-mono font-medium">
-                {candidate['Candidate ID']}
-              </span>
-            )}
-            {candidate && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-semibold">
-                {candidate['Pipeline Stage']}
-              </span>
-            )}
-          </div>
+    <>
+      {/* Backdrop overlay */}
+      <div
+        className="fixed inset-0 z-40 bg-black/40 backdrop-blur-xs transition-opacity"
+        onClick={onClose}
+      />
+      <div className="fixed inset-y-0 right-0 z-50 w-full sm:max-w-2xl bg-card border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+        {/* Top Header */}
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-muted/20">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-lg font-bold text-foreground">
+                {candidate ? candidate['Candidate Name'] : 'Candidate Profile'}
+              </h2>
+              {candidate && (
+                <span className="text-xs px-2.5 py-0.5 rounded-md bg-muted text-muted-foreground font-mono font-medium">
+                  {candidate['Candidate ID']}
+                </span>
+              )}
+              {candidate && (
+                <select
+                  value={formData['Pipeline Stage'] || candidate['Pipeline Stage'] || 'Unassigned'}
+                  onChange={(e) => handleFieldChange('Pipeline Stage', e.target.value)}
+                  disabled={!canEdit}
+                  className="text-xs px-2.5 py-1 rounded-md border border-border bg-background text-foreground font-semibold outline-none focus:ring-1 focus:ring-primary cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {PIPELINE_STAGES.map((st) => (
+                    <option key={st} value={st}>
+                      {st}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             Assigned to: <strong className="text-foreground">{candidate?.['Assigned HR'] || 'Unassigned'}</strong>
             {candidate?.['Client Name'] && <> • Client: <strong className="text-foreground">{candidate['Client Name']}</strong></>}
@@ -571,23 +642,80 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-muted-foreground mb-1">Designation Applied</label>
-                      <input
-                        type="text"
-                        value={formData['Designation Applied'] || ''}
-                        onChange={(e) => handleFieldChange('Designation Applied', e.target.value)}
-                        disabled={!isFieldEditable('Designation Applied')}
-                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none disabled:bg-muted"
-                      />
+                      {openings && openings.length > 0 && isFieldEditable('Designation Applied') ? (
+                        <div className="space-y-1.5">
+                          <select
+                            value={
+                              openings.some((o) => o['Position / Role'] === formData['Designation Applied'])
+                                ? formData['Designation Applied']
+                                : formData['Designation Applied']
+                                ? '__CUSTOM__'
+                                : ''
+                            }
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val !== '__CUSTOM__') {
+                                const matchedOp = openings.find((o) => o['Position / Role'] === val);
+                                handleFieldChange('Designation Applied', val);
+                                if (matchedOp && matchedOp['Client Name'] && !formData['Client Name']) {
+                                  handleFieldChange('Client Name', matchedOp['Client Name']);
+                                }
+                              }
+                            }}
+                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20"
+                          >
+                            <option value="">Select from Active Openings</option>
+                            {openings.map((op) => (
+                              <option key={op['Opening ID']} value={op['Position / Role']}>
+                                {op['Position / Role']} {op['Client Name'] ? `(${op['Client Name']})` : ''}
+                              </option>
+                            ))}
+                            <option value="__CUSTOM__">Other / Custom Designation</option>
+                          </select>
+                          {(!openings.some((o) => o['Position / Role'] === formData['Designation Applied']) || !formData['Designation Applied']) && (
+                            <input
+                              type="text"
+                              placeholder="Custom Designation"
+                              value={formData['Designation Applied'] || ''}
+                              onChange={(e) => handleFieldChange('Designation Applied', e.target.value)}
+                              className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none disabled:bg-muted"
+                            />
+                          )}
+                        </div>
+                      ) : (
+                        <input
+                          type="text"
+                          value={formData['Designation Applied'] || ''}
+                          onChange={(e) => handleFieldChange('Designation Applied', e.target.value)}
+                          disabled={!isFieldEditable('Designation Applied')}
+                          className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none disabled:bg-muted"
+                        />
+                      )}
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-muted-foreground mb-1">Client Name</label>
-                      <input
-                        type="text"
-                        value={formData['Client Name'] || ''}
-                        onChange={(e) => handleFieldChange('Client Name', e.target.value)}
-                        disabled={!isFieldEditable('Client Name')}
-                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none disabled:bg-muted"
-                      />
+                      {clients && clients.length > 0 && isFieldEditable('Client Name') ? (
+                        <select
+                          value={formData['Client Name'] || ''}
+                          onChange={(e) => handleFieldChange('Client Name', e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none disabled:bg-muted"
+                        >
+                          <option value="">Select Client (from Master)</option>
+                          {clients.map((c) => (
+                            <option key={c.clientId || c.clientName} value={c.clientName}>
+                              {c.clientName} {c.clientId ? `(${c.clientId})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={formData['Client Name'] || ''}
+                          onChange={(e) => handleFieldChange('Client Name', e.target.value)}
+                          disabled={!isFieldEditable('Client Name')}
+                          className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none disabled:bg-muted"
+                        />
+                      )}
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-muted-foreground mb-1">Experience</label>
@@ -686,5 +814,6 @@ export const CandidateDrawer: React.FC<CandidateDrawerProps> = ({
         )}
       </div>
     </div>
+    </>
   );
 };

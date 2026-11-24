@@ -495,11 +495,16 @@ class ApiClient {
     };
   }
 
+  async reserveCandidateIds(count: number = 1): Promise<string[]> {
+    return firestoreService.reserveCandidateIds(count, this.currentUser.email);
+  }
+
   async updateCandidate(candidateId: string, patch: Partial<Candidate>, recordVersion: string | number) {
     const updated = await firestoreService.updateCandidateInFirestore(candidateId, patch, this.currentUser);
     return {
       success: true,
-      candidate: updated
+      candidate: updated,
+      updatedCandidate: updated
     };
   }
 

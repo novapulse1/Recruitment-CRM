@@ -295,6 +295,8 @@ export const App: React.FC = () => {
                     candidates={candidates}
                     currentUser={currentUser}
                     dropdowns={dropdowns}
+                    clients={clients}
+                    openings={openings}
                     onSelectCandidate={(id) => setSelectedCandidateId(id)}
                     onOpenAddModal={() => {
                       setLineUpInitialData(undefined);
@@ -384,6 +386,8 @@ export const App: React.FC = () => {
         onClose={() => setSelectedCandidateId(null)}
         currentUser={currentUser}
         dropdowns={dropdowns}
+        clients={clients}
+        openings={openings}
         onCandidateUpdated={handleCandidateUpdated}
       />
 
@@ -394,6 +398,8 @@ export const App: React.FC = () => {
         currentUser={currentUser}
         candidates={candidates}
         dropdowns={dropdowns}
+        clients={clients}
+        openings={openings}
         initialData={lineUpInitialData}
         onCandidateAdded={loadAllData}
       />

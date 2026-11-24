@@ -80,35 +80,89 @@ export async function getCandidatesFromFirestore(user: User): Promise<Candidate[
   return candidates;
 }
 
+/**
+ * Atomically reserves a block of `count` sequential Candidate IDs.
+ * Retries up to 3 times with exponential backoff on transaction contention.
+ * Never falls back to a random timestamp.
+ * Ensures the counter starts at or above the historical maximum (1158).
+ */
+export async function reserveCandidateIds(count: number = 1, userEmail?: string): Promise<string[]> {
+  const firestore = requireDb();
+  const counterRef = doc(firestore, 'config', 'counters');
+  const HISTORICAL_MAX_ID_NUM = 1158;
+
+  let attempts = 0;
+  const maxAttempts = 3;
+  let lastError: any = null;
+
+  while (attempts < maxAttempts) {
+    attempts++;
+    try {
+      const allocatedIds = await runTransaction(firestore, async (transaction) => {
+        const counterSnap = await transaction.get(counterRef);
+        let currentMax = HISTORICAL_MAX_ID_NUM;
+        if (counterSnap.exists()) {
+          const data = counterSnap.data();
+          const storedNum = Number(data?.lastCandidateNum);
+          if (!isNaN(storedNum) && storedNum > currentMax) {
+            currentMax = storedNum;
+          }
+        }
+
+        const ids: string[] = [];
+        for (let i = 1; i <= count; i++) {
+          const num = currentMax + i;
+          ids.push(`NP-CAN-${String(num).padStart(6, '0')}`);
+        }
+
+        const newLastNum = currentMax + count;
+        transaction.set(
+          counterRef,
+          {
+            lastCandidateNum: newLastNum,
+            nextCandidateId: `NP-CAN-${String(newLastNum + 1).padStart(6, '0')}`,
+            updatedAt: serverTimestamp(),
+            updatedBy: userEmail || 'system'
+          },
+          { merge: true }
+        );
+
+        return ids;
+      });
+
+      // Verify that the allocated IDs do not already exist in Firestore (collision check)
+      for (const id of allocatedIds) {
+        const existing = await getDoc(doc(firestore, 'candidates', id));
+        if (existing.exists()) {
+          throw new Error(`Candidate ID collision detected for ${id}. Advancing counter.`);
+        }
+      }
+
+      return allocatedIds;
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[reserveCandidateIds] Attempt ${attempts} failed:`, err.message);
+      if (attempts < maxAttempts) {
+        await new Promise((res) => setTimeout(res, 150 * Math.pow(2, attempts)));
+      }
+    }
+  }
+
+  throw new Error(`Failed to generate sequential candidate ID after ${maxAttempts} attempts: ${lastError?.message || 'Transaction contention'}. Please try again.`);
+}
+
 export async function addCandidateToFirestore(candidate: Partial<Candidate>, user: User): Promise<Candidate> {
   const firestore = requireDb();
   let candidateId = candidate['Candidate ID'];
 
   if (!candidateId) {
-    try {
-      const counterRef = doc(firestore, 'config', 'counters');
-      candidateId = await runTransaction(firestore, async (transaction) => {
-        const counterSnap = await transaction.get(counterRef);
-        let nextNum = 1159;
-        if (counterSnap.exists() && counterSnap.data()?.lastCandidateNum) {
-          nextNum = Number(counterSnap.data().lastCandidateNum) + 1;
-        }
-        const formattedId = `NP-CAN-${String(nextNum).padStart(6, '0')}`;
-        transaction.set(
-          counterRef,
-          {
-            lastCandidateNum: nextNum,
-            nextCandidateId: `NP-CAN-${String(nextNum + 1).padStart(6, '0')}`,
-            updatedAt: serverTimestamp(),
-            updatedBy: user.email
-          },
-          { merge: true }
-        );
-        return formattedId;
-      });
-    } catch (err) {
-      console.warn('Failed to atomically increment candidate counter, using sequential fallback:', err);
-      candidateId = `NP-CAN-${String(Date.now()).slice(-6)}`;
+    const [allocatedId] = await reserveCandidateIds(1, user.email);
+    candidateId = allocatedId;
+  } else {
+    // Check if ID already exists
+    const existingSnap = await getDoc(doc(firestore, 'candidates', candidateId));
+    if (existingSnap.exists()) {
+      throw new Error(`Candidate with ID ${candidateId} already exists in Firestore. Duplicate IDs are not permitted.`);
     }
   }
 

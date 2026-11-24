@@ -21,14 +21,16 @@ import {
   Archive,
   RefreshCw
 } from 'lucide-react';
-import type { Candidate, DropdownOption, User } from '../types';
-import { PIPELINE_STAGES, type PipelineStage } from '../config';
+import type { Candidate, Client, DropdownOption, Opening, User } from '../types';
+import { PIPELINE_STAGES, STAGE_DEFINITIONS, type PipelineStage } from '../config';
 import { api } from '../services/api';
 
 interface CandidatesViewProps {
   candidates: Candidate[];
   currentUser: User;
   dropdowns: Record<string, DropdownOption[]>;
+  clients?: Client[];
+  openings?: Opening[];
   onSelectCandidate: (candidateId: string) => void;
   onOpenAddModal: () => void;
   onRefresh: () => void;
@@ -39,6 +41,8 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
   candidates = [],
   currentUser,
   dropdowns = {},
+  clients = [],
+  openings = [],
   onSelectCandidate,
   onOpenAddModal,
   onRefresh,
@@ -113,14 +117,20 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
     });
   }, [candidates, currentUser, searchQuery, filterClient, filterHR, filterDisposition, filterStage]);
 
+  const isAdmin = currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN';
+
   // Clients & HRs lists for filter dropdowns
   const uniqueClients = useMemo(() => {
+    if (clients && clients.length > 0) {
+      const fromClients = clients.map((c) => c.clientName).filter(Boolean);
+      return Array.from(new Set(fromClients)).sort();
+    }
     const set = new Set<string>();
     (candidates || []).forEach((c) => {
       if (c['Client Name']) set.add(c['Client Name']);
     });
     return Array.from(set).sort();
-  }, [candidates]);
+  }, [clients, candidates]);
 
   const uniqueHRs = useMemo(() => {
     const set = new Set<string>();
@@ -346,7 +356,7 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
         </select>
 
         {/* HR Filter (Admin only) */}
-        {currentUser.role === 'ADMIN' && (
+        {isAdmin && (
           <select
             value={filterHR}
             onChange={(e) => setFilterHR(e.target.value)}
@@ -392,7 +402,7 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
       </div>
 
       {/* Bulk Action Bar (Admin only) */}
-      {currentUser.role === 'ADMIN' && selectedIds.length > 0 && (
+      {isAdmin && selectedIds.length > 0 && (
         <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900 flex flex-wrap items-center justify-between gap-3 text-xs animate-in fade-in">
           <div className="flex items-center gap-2 font-semibold text-purple-900 dark:text-purple-200">
             <CheckSquare className="h-4 w-4 text-purple-600" />
@@ -479,7 +489,7 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
                           isSelected ? 'bg-primary/5' : ''
                         }`}
                       >
-                        {currentUser.role === 'ADMIN' && (
+                        {isAdmin && (
                           <td className="p-3 text-center" onClick={(e) => handleToggleSelect(c['Candidate ID'], e)}>
                             {isSelected ? (
                               <CheckSquare className="h-4 w-4 text-primary" />
@@ -527,19 +537,19 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
                         )}
                         {visibleColumns['Pipeline Stage'] && (
                           <td className="p-3 whitespace-nowrap">
-                            <span
-                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${
-                                c['Pipeline Stage'] === 'Joined'
-                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                  : c['Pipeline Stage']?.includes('Interview')
-                                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                                  : c['Pipeline Stage']?.includes('Dropped')
-                                  ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
-                                  : 'bg-muted text-muted-foreground'
-                              }`}
-                            >
-                              {c['Pipeline Stage'] || 'Sourced'}
-                            </span>
+                            {(() => {
+                              const stage = (c['Pipeline Stage'] || 'Unassigned') as PipelineStage;
+                              const stageDef = STAGE_DEFINITIONS[stage] || STAGE_DEFINITIONS['Unassigned'];
+                              return (
+                                <span
+                                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
+                                    stageDef?.badgeClass || 'bg-muted text-muted-foreground border-border'
+                                  }`}
+                                >
+                                  {stageDef?.label || stage}
+                                </span>
+                              );
+                            })()}
                           </td>
                         )}
                         {visibleColumns['Interview Date'] && (
@@ -574,7 +584,7 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
       {viewMode === 'kanban' && (
         <div className="flex gap-4 overflow-x-auto pb-6 scrollbar-thin">
           {PIPELINE_STAGES.map((stage) => {
-            const stageCandidates = filteredCandidates.filter((c) => (c['Pipeline Stage'] || 'Sourced') === stage);
+            const stageCandidates = filteredCandidates.filter((c) => (c['Pipeline Stage'] || 'Unassigned') === stage);
             return (
               <div
                 key={stage}

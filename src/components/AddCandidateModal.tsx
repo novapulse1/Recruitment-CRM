@@ -11,7 +11,8 @@ import {
   CheckCircle2,
   Send
 } from 'lucide-react';
-import type { Candidate, DropdownOption, User } from '../types';
+import type { Candidate, Client, DropdownOption, Opening, User } from '../types';
+import { PIPELINE_STAGES, type PipelineStage } from '../config';
 import { api } from '../services/api';
 import { can } from '../services/permissions';
 
@@ -21,6 +22,8 @@ interface AddCandidateModalProps {
   currentUser: User;
   candidates: Candidate[];
   dropdowns: Record<string, DropdownOption[]>;
+  clients?: Client[];
+  openings?: Opening[];
   initialData?: Partial<Candidate>;
   onCandidateAdded: () => void;
 }
@@ -31,6 +34,8 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({
   currentUser,
   candidates = [],
   dropdowns = {},
+  clients = [],
+  openings = [],
   initialData,
   onCandidateAdded
 }) => {
@@ -48,13 +53,35 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({
     'Source': 'Apna',
     'Client Name': '',
     'Industry': '',
-    'Remarks': ''
+    'Remarks': '',
+    'Pipeline Stage': currentUser.role === 'HR' ? 'Assigned – Not Called' : 'Unassigned',
+    'Assigned HR': currentUser.role === 'HR' ? currentUser.name : '',
+    'HR Email': currentUser.role === 'HR' ? currentUser.email : '',
+    'Interview Date': ''
   });
 
+  const [customDesignation, setCustomDesignation] = useState(false);
   const [duplicateMatch, setDuplicateMatch] = useState<Candidate | null>(null);
   const [matchField, setMatchField] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
   const [allowOverride, setAllowOverride] = useState(false);
+
+  // Keyboard Escape listener and scroll lock
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      window.addEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'unset';
+    };
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (initialData) {
@@ -105,14 +132,27 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({
   };
 
   const handleChange = (field: string, value: string) => {
-    const next = { ...formData, [field]: value };
+    let sanitizedValue = value;
+    if (field === 'Mobile Number' || field === 'Alternate Mobile') {
+      sanitizedValue = value.replace(/\D/g, '').slice(0, 10);
+    }
+
+    const next = { ...formData, [field]: sanitizedValue };
+
+    // Auto-transition: Assigning an HR moves stage from Unassigned to Assigned – Not Called
+    if (field === 'Assigned HR' && sanitizedValue) {
+      if (!formData['Pipeline Stage'] || formData['Pipeline Stage'] === 'Unassigned') {
+        next['Pipeline Stage'] = 'Assigned – Not Called';
+      }
+    }
+
     setFormData(next);
 
     if (field === 'Mobile Number' || field === 'Alternate Mobile' || field === 'Email ID') {
       checkDuplicate(
-        field === 'Mobile Number' ? value : formData['Mobile Number'] || '',
-        field === 'Alternate Mobile' ? value : formData['Alternate Mobile'] || '',
-        field === 'Email ID' ? value : formData['Email ID'] || ''
+        field === 'Mobile Number' ? sanitizedValue : formData['Mobile Number'] || '',
+        field === 'Alternate Mobile' ? sanitizedValue : formData['Alternate Mobile'] || '',
+        field === 'Email ID' ? sanitizedValue : formData['Email ID'] || ''
       );
     }
   };
@@ -122,6 +162,19 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({
     if (!formData['Candidate Name'] || !formData['Mobile Number']) {
       alert('Candidate Name and Mobile Number are required.');
       return;
+    }
+
+    const phoneDigits = String(formData['Mobile Number'] || '').replace(/\D/g, '');
+    if (phoneDigits.length !== 10 || !/^[6-9]\d{9}$/.test(phoneDigits)) {
+      alert('Please enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.');
+      return;
+    }
+
+    if (formData['Pipeline Stage'] === 'Interview Scheduled') {
+      if (!formData['Interview Date'] || formData['Interview Date'].trim() === '-' || formData['Interview Date'].trim() === '') {
+        alert('Interview Date is required when Pipeline Stage is Interview Scheduled.');
+        return;
+      }
     }
 
     if (duplicateMatch && !allowOverride) {
@@ -283,25 +336,133 @@ export const AddCandidateModal: React.FC<AddCandidateModalProps> = ({
               <label className="block text-xs font-semibold text-foreground mb-1">
                 Designation Applied
               </label>
-              <input
-                type="text"
-                placeholder="e.g. MIS Executive"
-                value={formData['Designation Applied']}
-                onChange={(e) => handleChange('Designation Applied', e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20"
-              />
+              {openings && openings.length > 0 ? (
+                <div className="space-y-1.5">
+                  <select
+                    value={
+                      customDesignation
+                        ? '__CUSTOM__'
+                        : openings.some((o) => o['Position / Role'] === formData['Designation Applied'])
+                        ? formData['Designation Applied']
+                        : formData['Designation Applied']
+                        ? '__CUSTOM__'
+                        : ''
+                    }
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '__CUSTOM__') {
+                        setCustomDesignation(true);
+                        setFormData((prev) => ({ ...prev, 'Designation Applied': '' }));
+                      } else {
+                        setCustomDesignation(false);
+                        const matchedOp = openings.find((o) => o['Position / Role'] === val);
+                        setFormData((prev) => {
+                          const next = {
+                            ...prev,
+                            'Designation Applied': val,
+                            'Opening ID': matchedOp ? matchedOp['Opening ID'] : prev['Opening ID']
+                          };
+                          if (matchedOp && matchedOp['Client Name'] && !prev['Client Name']) {
+                            next['Client Name'] = matchedOp['Client Name'];
+                            const matchedClient = clients.find((c) => c.clientName === matchedOp['Client Name']);
+                            if (matchedClient) next.clientId = matchedClient.clientId;
+                          }
+                          return next;
+                        });
+                      }
+                    }}
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20"
+                  >
+                    <option value="">Select from Active Openings</option>
+                    {openings.map((op) => (
+                      <option key={op['Opening ID']} value={op['Position / Role']}>
+                        {op['Position / Role']} {op['Client Name'] ? `(${op['Client Name']})` : ''}
+                      </option>
+                    ))}
+                    <option value="__CUSTOM__">Other / Custom Designation...</option>
+                  </select>
+                  {customDesignation && (
+                    <input
+                      type="text"
+                      placeholder="Type custom designation"
+                      value={formData['Designation Applied'] || ''}
+                      onChange={(e) => handleChange('Designation Applied', e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-xs text-foreground outline-none focus:ring-2 focus:ring-primary/20 animate-in fade-in"
+                    />
+                  )}
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  placeholder="e.g. MIS Executive"
+                  value={formData['Designation Applied'] || ''}
+                  onChange={(e) => handleChange('Designation Applied', e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              )}
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">Client Name</label>
-              <input
-                type="text"
-                placeholder="e.g. Basecop Luxgery"
-                value={formData['Client Name']}
-                onChange={(e) => handleChange('Client Name', e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20"
-              />
+              {clients && clients.length > 0 ? (
+                <select
+                  value={formData['Client Name'] || ''}
+                  onChange={(e) => {
+                    const selClient = e.target.value;
+                    const matched = clients.find((c) => c.clientName === selClient);
+                    setFormData((prev) => ({
+                      ...prev,
+                      'Client Name': selClient,
+                      clientId: matched?.clientId || ''
+                    }));
+                  }}
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                  <option value="">Select Client (from Master)</option>
+                  {clients.map((c) => (
+                    <option key={c.clientId || c.clientName} value={c.clientName}>
+                      {c.clientName} {c.clientId ? `(${c.clientId})` : ''}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  placeholder="e.g. Basecop Luxury"
+                  value={formData['Client Name'] || ''}
+                  onChange={(e) => handleChange('Client Name', e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              )}
             </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1">Pipeline Stage</label>
+              <select
+                value={formData['Pipeline Stage'] || 'Unassigned'}
+                onChange={(e) => handleChange('Pipeline Stage', e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                {PIPELINE_STAGES.map((st) => (
+                  <option key={st} value={st}>
+                    {st}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {formData['Pipeline Stage'] === 'Interview Scheduled' && (
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1">Interview Date *</label>
+                <input
+                  type="date"
+                  required
+                  value={formData['Interview Date'] ? formData['Interview Date'].split('T')[0] : ''}
+                  onChange={(e) => handleChange('Interview Date', e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-primary bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20 animate-in fade-in"
+                />
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-semibold text-foreground mb-1">
