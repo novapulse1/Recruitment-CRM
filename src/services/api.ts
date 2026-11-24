@@ -644,6 +644,10 @@ class ApiClient {
     return { logs };
   }
 
+  async logAuditEntry(entry: Partial<AuditLogEntry>) {
+    return firestoreService.logAuditEntry(entry);
+  }
+
   async reviewDuplicate(timestamp: string, candidateId: string, decision: string, notes?: string) {
     return { success: true };
   }

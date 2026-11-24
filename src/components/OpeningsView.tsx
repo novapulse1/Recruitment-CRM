@@ -12,10 +12,29 @@ import {
   Edit2,
   X,
   UserPlus,
-  CheckCircle2
+  CheckCircle2,
+  Download
 } from 'lucide-react';
 import type { Opening, User } from '../types';
 import { api } from '../services/api';
+import { downloadCSV, type CSVColumn } from '../utils/csvExport';
+
+const OPENING_CSV_COLUMNS: CSVColumn<Opening>[] = [
+  { key: 'Opening ID', label: 'Opening ID', format: 'text' },
+  { key: 'Status', label: 'Status' },
+  { key: 'Position / Role', label: 'Position / Role' },
+  { key: 'Client Name', label: 'Client Name' },
+  { key: 'Job Location (City)', label: 'Job Location (City)' },
+  { key: 'Salary Slab (₹ / month)', label: 'Salary Slab' },
+  { key: 'No. of Vacancies', label: 'No. of Vacancies', format: 'number' },
+  { key: 'Skills Required', label: 'Skills Required' },
+  { key: 'Qualification', label: 'Qualification' },
+  { key: 'Experience Required', label: 'Experience Required' },
+  { key: 'Shift / Timings', label: 'Shift / Timings' },
+  { key: 'Working Days', label: 'Working Days' },
+  { key: 'Interview Mode / Process', label: 'Interview Mode / Process' },
+  { key: 'Posted On', label: 'Posted On' }
+];
 
 export function normalizeOpening(raw: any): Opening {
   if (!raw) return {} as Opening;
@@ -130,6 +149,18 @@ export const OpeningsView: React.FC<OpeningsViewProps> = ({
     }
   };
 
+  const handleExportOpenings = async () => {
+    if (!isAdmin) return;
+    const nowStamp = new Date().toISOString().slice(0, 10);
+    await downloadCSV({
+      filename: `NovaPulse_Openings_${nowStamp}.csv`,
+      columns: OPENING_CSV_COLUMNS,
+      data: filtered,
+      moduleName: 'Openings',
+      currentUserEmail: currentUser.email
+    });
+  };
+
   return (
     <div className="space-y-4">
       {/* Top Header */}
@@ -145,12 +176,22 @@ export const OpeningsView: React.FC<OpeningsViewProps> = ({
         </div>
 
         {isAdmin && (
-          <button
-            onClick={handleOpenAdd}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-md shadow-primary/20"
-          >
-            <Plus className="h-4 w-4" /> Add Opening
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportOpenings}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border hover:bg-muted text-xs font-medium text-foreground transition-colors"
+              title="Export Openings to CSV"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Export Openings</span>
+            </button>
+            <button
+              onClick={handleOpenAdd}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-md shadow-primary/20"
+            >
+              <Plus className="h-4 w-4" /> Add Opening
+            </button>
+          </div>
         )}
       </div>
 

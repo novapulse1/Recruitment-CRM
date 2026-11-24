@@ -12,11 +12,32 @@ import {
   X,
   RefreshCw,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  Download
 } from 'lucide-react';
 import type { JoiningRecord, User as AuthUser } from '../types';
 import { api } from '../services/api';
 import { formatINR, parseDateIST, getTodayIST, getDaysDifference, getReplacementMetrics } from '../utils/formatters';
+import { downloadCSV, type CSVColumn } from '../utils/csvExport';
+
+const BILLING_CSV_COLUMNS: CSVColumn<JoiningRecord>[] = [
+  { key: 'candidateId', label: 'Candidate ID', format: 'text' },
+  { key: 'candidateName', label: 'Candidate Name' },
+  { key: 'clientName', label: 'Client Name' },
+  { key: 'designation', label: 'Designation' },
+  { key: 'assignedHR', label: 'Assigned HR' },
+  { key: 'joiningDate', label: 'Joining Date' },
+  { key: 'daysCompleted', label: 'Days Completed', format: 'number' },
+  { key: 'replacementEnds', label: 'Replacement Ends' },
+  { key: 'invoiceAmount', label: 'Invoice Amount', format: 'number' },
+  { key: 'invoiceStatus', label: 'Invoice Status' },
+  { key: 'invoiceNo', label: 'Invoice No', format: 'text' },
+  { key: 'invoiceDate', label: 'Invoice Date' },
+  { key: 'invoiceDueDate', label: 'Invoice Due Date' },
+  { key: 'paymentReceivedOn', label: 'Payment Received Date' },
+  { key: 'employmentStatus', label: 'Employment Status' },
+  { key: 'remarks', label: 'Remarks' }
+];
 
 interface JoiningsBillingViewProps {
   joinings: JoiningRecord[];
@@ -86,6 +107,20 @@ export const JoiningsBillingView: React.FC<JoiningsBillingViewProps> = ({
     }
   };
 
+  const isAdmin = currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN';
+
+  const handleExportBilling = async () => {
+    if (!isAdmin) return;
+    const nowStamp = new Date().toISOString().slice(0, 10);
+    await downloadCSV({
+      filename: `NovaPulse_Billing_${nowStamp}.csv`,
+      columns: BILLING_CSV_COLUMNS,
+      data: filtered,
+      moduleName: 'Billing',
+      currentUserEmail: currentUser.email
+    });
+  };
+
   return (
     <div className="space-y-4">
       {/* Top Header */}
@@ -100,12 +135,25 @@ export const JoiningsBillingView: React.FC<JoiningsBillingViewProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={onRefresh}
-          className="p-2 rounded-lg border border-border hover:bg-muted text-muted-foreground self-start sm:self-auto"
-        >
-          <RefreshCw className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          {isAdmin && (
+            <button
+              onClick={handleExportBilling}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border hover:bg-muted text-xs font-medium text-foreground transition-colors"
+              title="Export Billing & Joinings to CSV"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Export Billing</span>
+            </button>
+          )}
+
+          <button
+            onClick={onRefresh}
+            className="p-2 rounded-lg border border-border hover:bg-muted text-muted-foreground"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* Invoices Due Soon Warning Alert */}

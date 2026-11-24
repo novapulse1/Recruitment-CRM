@@ -12,10 +12,30 @@ import {
   CheckCircle2,
   Clock,
   Search,
-  X
+  X,
+  Download
 } from 'lucide-react';
 import type { Client, User as AuthUser } from '../types';
 import { api } from '../services/api';
+import { downloadCSV, type CSVColumn } from '../utils/csvExport';
+
+const CLIENT_CSV_COLUMNS: CSVColumn<Client>[] = [
+  { key: 'clientId', label: 'Client ID', format: 'text' },
+  { key: 'clientName', label: 'Client Name' },
+  { key: 'status', label: 'Status' },
+  { key: 'industry', label: 'Industry' },
+  { key: 'feeType', label: 'Fee Type' },
+  { key: 'feeValue', label: 'Fee Value', format: 'number' },
+  { key: 'invoiceAfterDays', label: 'Invoice After (Days)', format: 'number' },
+  { key: 'replacementPeriodDays', label: 'Replacement Period (Days)', format: 'number' },
+  { key: 'gstPercent', label: 'GST %', format: 'number' },
+  { key: 'contactPerson', label: 'Contact Person' },
+  { key: 'contactPhone', label: 'Contact Phone', format: 'text' },
+  { key: 'contactEmail', label: 'Contact Email' },
+  { key: 'payrollType', label: 'Payroll Type' },
+  { key: 'billingAddress', label: 'Billing Address' },
+  { key: 'gstNo', label: 'GST Number', format: 'text' }
+];
 
 export function normalizeClient(raw: any): Client {
   if (!raw) return {} as Client;
@@ -120,6 +140,18 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
     }
   };
 
+  const handleExportClients = async () => {
+    if (!isAdmin) return;
+    const nowStamp = new Date().toISOString().slice(0, 10);
+    await downloadCSV({
+      filename: `NovaPulse_Clients_${nowStamp}.csv`,
+      columns: CLIENT_CSV_COLUMNS,
+      data: filtered,
+      moduleName: 'Clients',
+      currentUserEmail: currentUser.email
+    });
+  };
+
   return (
     <div className="space-y-4">
       {/* Top Header */}
@@ -135,12 +167,22 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
         </div>
 
         {isAdmin && (
-          <button
-            onClick={handleOpenAdd}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-md shadow-primary/20"
-          >
-            <Plus className="h-4 w-4" /> Add Client
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportClients}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border hover:bg-muted text-xs font-medium text-foreground transition-colors"
+              title="Export Clients to CSV"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Export Clients</span>
+            </button>
+            <button
+              onClick={handleOpenAdd}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-md shadow-primary/20"
+            >
+              <Plus className="h-4 w-4" /> Add Client
+            </button>
+          </div>
         )}
       </div>
 

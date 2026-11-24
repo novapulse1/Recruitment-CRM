@@ -12,10 +12,26 @@ import {
   Briefcase,
   Search,
   Filter,
-  ExternalLink
+  ExternalLink,
+  Download
 } from 'lucide-react';
 import type { Candidate, InterviewItem, User as AuthUser } from '../types';
 import { calculateInterviewTimeBucket, parseDateIST } from '../utils/formatters';
+import { downloadCSV, type CSVColumn } from '../utils/csvExport';
+
+const INTERVIEW_CSV_COLUMNS: CSVColumn<InterviewItem>[] = [
+  { key: 'candidateId', label: 'Candidate ID', format: 'text' },
+  { key: 'candidateName', label: 'Candidate Name' },
+  { key: 'clientName', label: 'Client Name' },
+  { key: 'designation', label: 'Designation' },
+  { key: 'interviewDate', label: 'Interview Date' },
+  { key: 'interviewStatus', label: 'Interview Status' },
+  { key: 'timeBucket', label: 'Time Bucket' },
+  { key: 'rescheduleCount', label: 'Reschedule Count', format: 'number' },
+  { key: 'mobile', label: 'Mobile Number', format: 'text' },
+  { key: 'assignedHR', label: 'Assigned HR' },
+  { key: 'hrEmail', label: 'HR Email' }
+];
 
 interface InterviewsViewProps {
   interviews: InterviewItem[];
@@ -148,6 +164,21 @@ export const InterviewsView: React.FC<InterviewsViewProps> = ({
     Overdue: processedInterviews.filter((i) => i.timeBucket === 'Overdue').length
   };
 
+  const isAdmin = currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'ADMIN';
+
+  const handleExportInterviews = async () => {
+    if (!isAdmin) return;
+    const nowStamp = new Date().toISOString().slice(0, 10);
+    const bucketSuffix = activeBucket === 'All' ? 'All' : activeBucket.replace(/\s+/g, '_');
+    await downloadCSV({
+      filename: `NovaPulse_Interviews_${bucketSuffix}_${nowStamp}.csv`,
+      columns: INTERVIEW_CSV_COLUMNS,
+      data: filtered,
+      moduleName: 'Interviews',
+      currentUserEmail: currentUser.email
+    });
+  };
+
   return (
     <div className="space-y-4">
       {/* Top Header */}
@@ -162,32 +193,46 @@ export const InterviewsView: React.FC<InterviewsViewProps> = ({
           </p>
         </div>
 
-        {/* Time Bucket Tabs */}
-        <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-xl border border-border">
-          {(['All', 'Today', 'Tomorrow', 'This Week', 'Overdue'] as const).map((b) => (
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Time Bucket Tabs */}
+          <div className="flex items-center gap-1 bg-muted/40 p-1 rounded-xl border border-border">
+            {(['All', 'Today', 'Tomorrow', 'This Week', 'Overdue'] as const).map((b) => (
+              <button
+                key={b}
+                onClick={() => setActiveBucket(b)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                  activeBucket === b
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <span>{b}</span>
+                {b !== 'All' && (
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      b === 'Overdue' && bucketCounts.Overdue > 0
+                        ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+                        : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    {bucketCounts[b]}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Export Interviews Button (Admin only) */}
+          {isAdmin && (
             <button
-              key={b}
-              onClick={() => setActiveBucket(b)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                activeBucket === b
-                  ? 'bg-card text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
+              onClick={handleExportInterviews}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border hover:bg-muted text-xs font-medium text-foreground transition-colors"
+              title="Export Interviews to CSV"
             >
-              <span>{b}</span>
-              {b !== 'All' && (
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                    b === 'Overdue' && bucketCounts.Overdue > 0
-                      ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
-                      : 'bg-muted text-muted-foreground'
-                  }`}
-                >
-                  {bucketCounts[b]}
-                </span>
-              )}
+              <Download className="h-3.5 w-3.5" />
+              <span>Export CSV</span>
             </button>
-          ))}
+          )}
         </div>
       </div>
 

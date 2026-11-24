@@ -24,6 +24,36 @@ import {
 import type { Candidate, Client, DropdownOption, Opening, User } from '../types';
 import { PIPELINE_STAGES, STAGE_DEFINITIONS, type PipelineStage } from '../config';
 import { api } from '../services/api';
+import { downloadCSV, type CSVColumn } from '../utils/csvExport';
+
+const CANDIDATE_CSV_COLUMNS: CSVColumn<Candidate>[] = [
+  { key: 'Candidate ID', label: 'Candidate ID', format: 'text' },
+  { key: 'Candidate Name', label: 'Candidate Name' },
+  { key: 'Mobile Number', label: 'Mobile Number', format: 'text' },
+  { key: 'Alternate Mobile', label: 'Alternate Mobile', format: 'text' },
+  { key: 'Email ID', label: 'Email ID' },
+  { key: 'Designation Applied', label: 'Designation Applied' },
+  { key: 'Client Name', label: 'Client Name' },
+  { key: 'Assigned HR', label: 'Assigned HR' },
+  { key: 'HR Email', label: 'HR Email' },
+  { key: 'Calling Disposition', label: 'Calling Disposition' },
+  { key: 'Sub-Disposition', label: 'Sub-Disposition' },
+  { key: 'Pipeline Stage', label: 'Pipeline Stage' },
+  { key: 'Interview Date', label: 'Interview Date' },
+  { key: 'Selection Status', label: 'Selection Status' },
+  { key: 'Joining Status', label: 'Joining Status' },
+  { key: 'Joining Date', label: 'Joining Date' },
+  { key: 'Current Location', label: 'Current Location' },
+  { key: 'Experience', label: 'Experience' },
+  { key: 'Current Salary', label: 'Current Salary', format: 'number' },
+  { key: 'Expected Salary', label: 'Expected Salary', format: 'number' },
+  { key: 'Notice Period', label: 'Notice Period' },
+  { key: 'Source', label: 'Source' },
+  { key: 'Industry', label: 'Industry' },
+  { key: 'Remarks', label: 'Remarks' },
+  { key: 'Last Updated', label: 'Last Updated' },
+  { key: 'Created By', label: 'Created By' }
+];
 
 interface CandidatesViewProps {
   candidates: Candidate[];
@@ -74,6 +104,7 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
     'Last Updated': true
   });
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
   // Filtered dataset
   const filteredCandidates = useMemo(() => {
@@ -171,32 +202,23 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  // Export to CSV (Super Admin & Admin)
-  const handleExportCSV = () => {
-    if (currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'ADMIN') {
+  // Export to CSV (Super Admin & Admin with UTF-8 BOM, text phone protection)
+  const runExport = async (exportType: 'filtered' | 'all') => {
+    if (!isAdmin) {
       alert('Export is restricted to Administrators.');
       return;
     }
+    const dataToExport = exportType === 'filtered' ? filteredCandidates : candidates;
+    const nowStamp = new Date().toISOString().slice(0, 10);
+    setExportMenuOpen(false);
 
-    const headers = Object.keys(visibleColumns).filter((k) => visibleColumns[k]);
-    const csvRows = [headers.join(',')];
-
-    filteredCandidates.forEach((c) => {
-      const row = headers.map((h) => {
-        const val = String((c as any)[h] || '').replace(/"/g, '""');
-        return `"${val}"`;
-      });
-      csvRows.push(row.join(','));
+    await downloadCSV({
+      filename: `NovaPulse_Candidates_${exportType}_${nowStamp}.csv`,
+      columns: CANDIDATE_CSV_COLUMNS,
+      data: dataToExport,
+      moduleName: 'Candidates',
+      currentUserEmail: currentUser.email
     });
-
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `NovaPulse_Candidates_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   // Bulk action execution
@@ -321,16 +343,38 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
             </div>
           )}
 
-          {/* CSV Export (Admin only) */}
-          {currentUser.role === 'ADMIN' && (
-            <button
-              onClick={handleExportCSV}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border hover:bg-muted text-xs font-medium text-foreground transition-colors"
-              title="Export filtered records to CSV"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Export</span>
-            </button>
+          {/* CSV Export Dropdown (Admin only) */}
+          {isAdmin && (
+            <div className="relative">
+              <button
+                onClick={() => setExportMenuOpen(!exportMenuOpen)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border hover:bg-muted text-xs font-medium text-foreground transition-colors"
+                title="Export Candidates to CSV"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Export CSV</span>
+              </button>
+
+              {exportMenuOpen && (
+                <div className="absolute right-0 mt-2 w-56 rounded-xl border border-border bg-card p-2 shadow-xl z-20 space-y-1">
+                  <div className="text-[11px] font-semibold text-muted-foreground px-2 py-1">Export Options</div>
+                  <button
+                    onClick={() => runExport('filtered')}
+                    className="w-full text-left px-2 py-1.5 rounded-md text-xs hover:bg-muted flex items-center justify-between text-foreground"
+                  >
+                    <span>Export filtered</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">({filteredCandidates.length})</span>
+                  </button>
+                  <button
+                    onClick={() => runExport('all')}
+                    className="w-full text-left px-2 py-1.5 rounded-md text-xs hover:bg-muted flex items-center justify-between text-foreground"
+                  >
+                    <span>Export all</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">({candidates.length})</span>
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
           {/* Add Candidate Button */}
