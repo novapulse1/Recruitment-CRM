@@ -9,7 +9,7 @@ export const APP_CONFIG = {
   TAGLINE: 'Recruitment & Staffing CRM',
   LIVE_SPREADSHEET_ID: '11j17e5RTG0uLTXg41f_AfKMqAUtGCDXV2DusZ8Muq58',
   DEV_SPREADSHEET_ID: '162bNBPeryLIJ-M6yBt8uSK3YbKc8tN3qP1DkF4PwAd0',
-  DEFAULT_API_URL: import.meta.env.VITE_API_URL || '',
+  DEFAULT_API_URL: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || '',
   TIMEZONE: 'Asia/Kolkata',
   CURRENCY_SYMBOL: '₹'
 };
