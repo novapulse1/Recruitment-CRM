@@ -19,12 +19,14 @@ import {
   AlertCircle,
   MoreHorizontal,
   Archive,
-  RefreshCw
+  RefreshCw,
+  UploadCloud
 } from 'lucide-react';
 import type { Candidate, Client, DropdownOption, Opening, User } from '../types';
 import { PIPELINE_STAGES, STAGE_DEFINITIONS, type PipelineStage } from '../config';
 import { api } from '../services/api';
 import { downloadCSV, type CSVColumn } from '../utils/csvExport';
+import { CsvImportModal } from './CsvImportModal';
 
 const CANDIDATE_CSV_COLUMNS: CSVColumn<Candidate>[] = [
   { key: 'Candidate ID', label: 'Candidate ID', format: 'text' },
@@ -105,6 +107,7 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
   });
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [csvImportOpen, setCsvImportOpen] = useState(false);
 
   // Filtered dataset
   const filteredCandidates = useMemo(() => {
@@ -375,6 +378,18 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
                 </div>
               )}
             </div>
+          )}
+
+          {/* CSV Import Button (Admin only) */}
+          {isAdmin && (
+            <button
+              onClick={() => setCsvImportOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border hover:bg-muted text-xs font-medium text-foreground transition-colors"
+              title="Import Candidates from CSV"
+            >
+              <UploadCloud className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Import CSV</span>
+            </button>
           )}
 
           {/* Add Candidate Button */}
@@ -755,6 +770,19 @@ export const CandidatesView: React.FC<CandidatesViewProps> = ({
             );
           })}
         </div>
+      )}
+
+      {/* CSV Bulk Import Modal */}
+      {isAdmin && (
+        <CsvImportModal
+          isOpen={csvImportOpen}
+          onClose={() => setCsvImportOpen(false)}
+          currentUser={currentUser}
+          existingCandidates={candidates}
+          clients={clients}
+          uniqueHRs={uniqueHRs}
+          onSuccess={onRefresh}
+        />
       )}
     </div>
   );

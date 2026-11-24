@@ -499,6 +499,14 @@ class ApiClient {
     return firestoreService.reserveCandidateIds(count, this.currentUser.email);
   }
 
+  async bulkImportCandidates(
+    toCreate: Candidate[],
+    toUpdate: { candidateId: string; patch: Partial<Candidate> }[],
+    onProgress?: (progress: { current: number; total: number; percent: number }) => void
+  ) {
+    return firestoreService.bulkImportCandidatesToFirestore(toCreate, toUpdate, this.currentUser, onProgress);
+  }
+
   async updateCandidate(candidateId: string, patch: Partial<Candidate>, recordVersion: string | number) {
     const updated = await firestoreService.updateCandidateInFirestore(candidateId, patch, this.currentUser);
     return {

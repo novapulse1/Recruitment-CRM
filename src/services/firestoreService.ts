@@ -257,6 +257,130 @@ export async function updateCandidateInFirestore(
   return merged;
 }
 
+export async function bulkImportCandidatesToFirestore(
+  toCreate: Candidate[],
+  toUpdate: { candidateId: string; patch: Partial<Candidate> }[],
+  user: User,
+  onProgress?: (progress: { current: number; total: number; percent: number }) => void
+): Promise<{
+  createdCount: number;
+  updatedCount: number;
+  failedCount: number;
+  failedErrors: { id?: string; error: string }[];
+}> {
+  const firestore = requireDb();
+  const nowStr = new Date().toLocaleString('en-GB');
+
+  type BatchOp =
+    | { type: 'create'; data: Candidate }
+    | { type: 'update'; id: string; patch: Partial<Candidate> };
+
+  const allOps: BatchOp[] = [
+    ...toCreate.map((c) => ({ type: 'create' as const, data: c })),
+    ...toUpdate.map((u) => ({ type: 'update' as const, id: u.candidateId, patch: u.patch }))
+  ];
+
+  const totalOps = allOps.length;
+  let processedOps = 0;
+  let createdCount = 0;
+  let updatedCount = 0;
+  let failedCount = 0;
+  const failedErrors: { id?: string; error: string }[] = [];
+
+  const CHUNK_SIZE = 400; // Well within the Firestore 500 limit
+
+  for (let i = 0; i < allOps.length; i += CHUNK_SIZE) {
+    const chunk = allOps.slice(i, i + CHUNK_SIZE);
+    let attempts = 0;
+    const maxAttempts = 3;
+    let success = false;
+
+    while (attempts < maxAttempts && !success) {
+      attempts++;
+      try {
+        const batch = writeBatch(firestore);
+        for (const op of chunk) {
+          if (op.type === 'create') {
+            const cand = {
+              ...op.data,
+              'Entry Date': op.data['Entry Date'] || nowStr,
+              'Record Status': op.data['Record Status'] || 'Active',
+              'Created By': user.email,
+              'Last Updated': nowStr,
+              'Last Updated By': user.email,
+              'Record Version': 1
+            };
+            batch.set(doc(firestore, 'candidates', op.data['Candidate ID']), cand);
+          } else {
+            const docRef = doc(firestore, 'candidates', op.id);
+            const patchWithMeta: any = {
+              ...op.patch,
+              'Last Updated': nowStr,
+              'Last Updated By': user.email
+            };
+            if (op.patch['Record Version'] !== undefined) {
+              patchWithMeta['Record Version'] = op.patch['Record Version'];
+            }
+            batch.set(docRef, patchWithMeta, { merge: true });
+          }
+        }
+        await batch.commit();
+        success = true;
+
+        for (const op of chunk) {
+          if (op.type === 'create') createdCount++;
+          else updatedCount++;
+        }
+      } catch (err: any) {
+        console.warn(`[bulkImportCandidates] Batch ${Math.floor(i / CHUNK_SIZE) + 1} attempt ${attempts} failed:`, err.message);
+        if (attempts < maxAttempts) {
+          await new Promise((res) => setTimeout(res, 200 * Math.pow(2, attempts)));
+        } else {
+          failedCount += chunk.length;
+          failedErrors.push({
+            id: `Batch ${Math.floor(i / CHUNK_SIZE) + 1}`,
+            error: err?.message || 'Batch commit failed after 3 attempts'
+          });
+        }
+      }
+    }
+
+    processedOps += chunk.length;
+    if (onProgress) {
+      onProgress({
+        current: Math.min(processedOps, totalOps),
+        total: totalOps,
+        percent: totalOps > 0 ? Math.round((Math.min(processedOps, totalOps) / totalOps) * 100) : 100
+      });
+    }
+  }
+
+  // Audit log for the bulk import
+  try {
+    await logAuditEntry({
+      Timestamp: nowStr,
+      'Candidate ID': 'BULK_IMPORT',
+      'Candidate Name': `CSV Bulk Import (${createdCount} created, ${updatedCount} updated)`,
+      'Previous Value': 'None',
+      'New Value': `Successfully imported ${createdCount} candidates, updated ${updatedCount}, failed ${failedCount}`,
+      Action: 'CSV_IMPORT_CANDIDATES',
+      'Updated By': user.email,
+      'HR Name': user.name || user.email,
+      'Source Spreadsheet': 'CANDIDATES',
+      'Action Type': 'DATA'
+    });
+  } catch (auditErr) {
+    console.warn('[bulkImportCandidates] Failed to log audit entry:', auditErr);
+  }
+
+  return {
+    createdCount,
+    updatedCount,
+    failedCount,
+    failedErrors
+  };
+}
+
 // ==================== OPENINGS ====================
 
 export async function getOpeningsFromFirestore(): Promise<Opening[]> {
